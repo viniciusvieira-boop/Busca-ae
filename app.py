@@ -1,0 +1,272 @@
+import streamlit as st
+from google.oauth2 import service_account
+from googleapiclient.discovery import build
+import json
+ 
+st.set_page_config(
+    page_title="Busca aê",
+    page_icon="🔍",
+    layout="wide"
+)
+ 
+# ── CSS ───────────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+.header {
+    background: #00A99D; padding: 14px 24px;
+    display: flex; align-items: center; gap: 12px;
+    border-radius: 8px; margin-bottom: 20px;
+}
+.header h1 { color: white; font-size: 20px; font-weight: 600; margin: 0; }
+.header p  { color: rgba(255,255,255,.7); font-size: 12px; margin: 0; }
+.card {
+    background: white; border: 1px solid #E0E6ED;
+    border-radius: 8px; padding: 16px 20px; margin-bottom: 16px;
+}
+.card-title {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: #7F8C8D; margin-bottom: 12px;
+}
+.badge-green  { background:#D5F5E3; color:#1E8449; padding:2px 8px; border-radius:3px; font-size:10px; font-weight:600; }
+.badge-blue   { background:#EBF4FB; color:#1A5276; padding:2px 8px; border-radius:3px; font-size:10px; font-weight:600; }
+.badge-teal   { background:#E6F7F6; color:#008F84; padding:2px 8px; border-radius:3px; font-size:10px; font-weight:600; }
+.badge-amber  { background:#FEF5EC; color:#7E5109; padding:2px 8px; border-radius:3px; font-size:10px; font-weight:600; }
+.file-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border: 1px solid #E0E6ED;
+    border-radius: 6px; margin-bottom: 4px; cursor: pointer;
+}
+.step-num {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: #00A99D; color: white; font-size: 10px;
+    font-weight: 700; display: inline-flex; align-items: center;
+    justify-content: center; margin-right: 6px;
+}
+</style>
+""", unsafe_allow_html=True)
+ 
+# ── CONSTANTES ────────────────────────────────────────────────────────────────
+FOLDER_COM  = "1mSDwYd4BSNpykLDXBA3dYSKSUjPxp17z"
+FOLDER_PLAT = "1DL19N8ZqrpG15HiknXykmLdIdIj5UBbK"
+ 
+PLATAFORMAS = [
+    {"key": "amazon",         "label": "Amazon",          "sub": "Marketplace", "id": "1gvcz9iQ0bDHRl9YEl9DRBD_gdsitkdG7"},
+    {"key": "meli",           "label": "Mercado Livre",   "sub": "Marketplace", "id": "1mfOP-AYCe3BzydffU0pq0fOYgXtRGLaF"},
+    {"key": "b2w",            "label": "B2W",             "sub": "Marketplace", "id": "1P7d7xkewAfhydvpiYwDz_YPfPT7HJ6_2"},
+    {"key": "via_varejo",     "label": "Via Varejo",      "sub": "Marketplace", "id": "1055Sg2h1fKUVN0VTWCMMHl1LQ7eoyF50"},
+    {"key": "magazine_luiza", "label": "Magalu",          "sub": "Marketplace", "id": "1QjUk7niyicDcCTJr27rkX9PlaVeqJD8v"},
+    {"key": "carrefour",      "label": "Carrefour",       "sub": "Marketplace", "id": "1VAJo9tMKo5i0IbI3wAbKkae3Ey3wnt0e"},
+    {"key": "dafiti",         "label": "Dafiti",          "sub": "Marketplace", "id": "1Qo2g0POEc0JbrxGFICb36ZsUvDUnhg3J"},
+    {"key": "madeira",        "label": "Madeira Madeira", "sub": "Marketplace", "id": "1wdHCbiQP2rCTXSOjXbnSRplpa1LOV84C"},
+    {"key": "vtex",           "label": "VTEX",            "sub": "Plataforma",  "id": "10NAi9CjhKdZ4E04Zy5GJLkIguvO5V753"},
+    {"key": "loja_integrada", "label": "Loja Integrada",  "sub": "Plataforma",  "id": "1IeK1dQqf0hF3I_z55YVjblZ2ZmQhhIYe"},
+    {"key": "linx",           "label": "Linx",            "sub": "Plataforma",  "id": "1JqSqDajBK0CMjPMWLqahR0V9VjLe6XCz"},
+    {"key": "jetcommerce",    "label": "JetCommerce",     "sub": "Plataforma",  "id": "1br55XP-ttO7ujWel4xsscEGncDoQ4ywX"},
+    {"key": "ezcommerce",     "label": "EZCommerce",      "sub": "Plataforma",  "id": "1JftDI_AlQHUH3RGOMWDtIcWDqTCPwXGp"},
+    {"key": "ciashop",        "label": "CiaShop",         "sub": "Plataforma",  "id": "1KoTm3_ezHfDeVgjqBheDIP29GvXqexcw"},
+    {"key": "convertize",     "label": "Convertize",      "sub": "Plataforma",  "id": "1Lug4jzTLu7xx_Cs5kYZy88jsYkB5iMhK"},
+    {"key": "intelipost",     "label": "Intelipost",      "sub": "Logística",   "id": "103h4GxDTGCDv65LUyQuz3Fr1rvq0n2Mr"},
+]
+ 
+# ── GOOGLE DRIVE ──────────────────────────────────────────────────────────────
+@st.cache_resource
+def get_drive_service():
+    creds_dict = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
+    creds = service_account.Credentials.from_service_account_info(
+        creds_dict,
+        scopes=["https://www.googleapis.com/auth/drive.readonly"]
+    )
+    return build("drive", "v3", credentials=creds)
+ 
+def listar_arquivos(folder_id, nome_filtro=None):
+    service = get_drive_service()
+    q = f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'"
+    if nome_filtro:
+        q += f" and name contains '{nome_filtro}'"
+    result = service.files().list(
+        q=q,
+        fields="files(id,name,webViewLink)",
+        pageSize=50
+    ).execute()
+    return result.get("files", [])
+ 
+def listar_subpastas(folder_id):
+    service = get_drive_service()
+    q = f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'"
+    result = service.files().list(
+        q=q,
+        fields="files(id,name)",
+        pageSize=50
+    ).execute()
+    return result.get("files", [])
+ 
+def buscar_recursivo(root_id, termo):
+    arquivos = listar_arquivos(root_id, termo)
+    subpastas = listar_subpastas(root_id)
+    for sub in subpastas:
+        arquivos += listar_arquivos(sub["id"], termo)
+    return arquivos
+ 
+def get_tipo(nome):
+    import re
+    if re.search(r'_E_|_E\d', nome, re.IGNORECASE): return "E"
+    if re.search(r'_R_|_R\d', nome, re.IGNORECASE): return "R"
+    return None
+ 
+# ── HEADER ────────────────────────────────────────────────────────────────────
+st.markdown("""
+<div class="header">
+  <div>
+    <h1>🔍 Busca aê</h1>
+    <p>Compartilhador de Tabelas — Comercial &amp; Plataforma</p>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+ 
+# ── ESTADO ────────────────────────────────────────────────────────────────────
+if "com_sel" not in st.session_state:
+    st.session_state.com_sel = None
+if "plat_sel" not in st.session_state:
+    st.session_state.plat_sel = {}
+if "resultados_com" not in st.session_state:
+    st.session_state.resultados_com = []
+if "resultados_plat" not in st.session_state:
+    st.session_state.resultados_plat = {}
+ 
+# ── PASSO 1: TABELA COMERCIAL ─────────────────────────────────────────────────
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<div class="card-title"><span class="step-num">1</span> Buscar tabela comercial</div>', unsafe_allow_html=True)
+ 
+col1, col2 = st.columns([4, 1])
+with col1:
+    termo_com = st.text_input("", placeholder="Ex: MERCURIO, LUA, CALISTO...", label_visibility="collapsed", key="input_com")
+with col2:
+    buscar_com = st.button("Buscar", type="primary", use_container_width=True)
+ 
+if buscar_com and termo_com:
+    with st.spinner(f'Buscando "{termo_com}" no Drive...'):
+        try:
+            st.session_state.resultados_com = buscar_recursivo(FOLDER_COM, termo_com)
+            st.session_state.com_sel = None
+        except Exception as e:
+            st.error(f"Erro: {e}")
+ 
+if st.session_state.resultados_com:
+    st.markdown("**Selecione a tabela comercial:**")
+    for f in st.session_state.resultados_com:
+        is_sel = st.session_state.com_sel and st.session_state.com_sel["id"] == f["id"]
+        label = f"{'✅' if is_sel else '📄'} {f['name']}"
+        if st.button(label, key=f"com_{f['id']}", use_container_width=True):
+            st.session_state.com_sel = f
+            st.rerun()
+ 
+if st.session_state.com_sel:
+    st.success(f"✓ Selecionado: {st.session_state.com_sel['name']}")
+ 
+st.markdown('</div>', unsafe_allow_html=True)
+ 
+# ── PASSO 2: PLATAFORMAS ──────────────────────────────────────────────────────
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<div class="card-title"><span class="step-num">2</span> Selecione as plataformas</div>', unsafe_allow_html=True)
+ 
+cols = st.columns(4)
+plats_selecionadas = []
+for i, plat in enumerate(PLATAFORMAS):
+    with cols[i % 4]:
+        checked = st.checkbox(f"{plat['label']}\n{plat['sub']}", key=f"chip_{plat['key']}")
+        if checked:
+            plats_selecionadas.append(plat)
+ 
+st.divider()
+tipo_filtro = st.radio("Tipo de tabela", ["Todos", "Econômico (E_)", "Rápido (R_)"], horizontal=True)
+ 
+buscar_plat = st.button(
+    "🔍 Buscar tabelas para este cliente",
+    type="primary",
+    use_container_width=True,
+    disabled=not (st.session_state.com_sel and len(plats_selecionadas) > 0)
+)
+ 
+if buscar_plat:
+    m = None
+    import re
+    match = re.search(r'[Vv]2?_([A-Za-z0-9]+)', st.session_state.com_sel["name"])
+    termo = match.group(1).lower() if match else st.session_state.com_sel["name"].split("_")[0].lower()
+ 
+    st.session_state.resultados_plat = {}
+    for plat in plats_selecionadas:
+        with st.spinner(f"Buscando em {plat['label']}..."):
+            try:
+                files = listar_arquivos(plat["id"], termo)
+                if files:
+                    st.session_state.resultados_plat[plat["key"]] = {"plat": plat, "files": files}
+            except Exception as e:
+                st.warning(f"Erro em {plat['label']}: {e}")
+    st.session_state.plat_sel = {}
+ 
+if st.session_state.resultados_plat:
+    st.markdown("**Selecione as tabelas de plataforma:**")
+    for key, dados in st.session_state.resultados_plat.items():
+        plat = dados["plat"]
+        files = dados["files"]
+ 
+        # aplica filtro de tipo
+        if tipo_filtro == "Econômico (E_)":
+            files = [f for f in files if get_tipo(f["name"]) == "E"]
+        elif tipo_filtro == "Rápido (R_)":
+            files = [f for f in files if get_tipo(f["name"]) == "R"]
+ 
+        if not files:
+            continue
+ 
+        st.markdown(f"**{plat['label']}** — {len(files)} arquivo(s)")
+        for f in files:
+            tipo = get_tipo(f["name"])
+            tipo_badge = "🔵 E" if tipo == "E" else "🟢 R" if tipo == "R" else ""
+            key_sel = f"plat_{f['id']}"
+            checked = st.checkbox(f"{tipo_badge} {f['name']}", key=key_sel)
+            if checked:
+                if key not in st.session_state.plat_sel:
+                    st.session_state.plat_sel[key] = []
+                if not any(x["id"] == f["id"] for x in st.session_state.plat_sel[key]):
+                    st.session_state.plat_sel[key].append(f)
+            else:
+                if key in st.session_state.plat_sel:
+                    st.session_state.plat_sel[key] = [x for x in st.session_state.plat_sel[key] if x["id"] != f["id"]]
+ 
+st.markdown('</div>', unsafe_allow_html=True)
+ 
+# ── GERAR LINKS ───────────────────────────────────────────────────────────────
+todos_plat = [f for files in st.session_state.plat_sel.values() for f in files]
+ 
+if st.button("Gerar Links →", type="primary", use_container_width=True,
+             disabled=not (st.session_state.com_sel and len(todos_plat) > 0)):
+ 
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="card-title">Links para Compartilhamento</div>', unsafe_allow_html=True)
+ 
+    com = st.session_state.com_sel
+    st.markdown("**📊 Tabela Comercial**")
+    st.code(com["url"])
+    st.markdown(f"[{com['name']}]({com['url']})")
+ 
+    st.divider()
+    st.markdown("**📦 Tabelas de Plataforma**")
+    for f in todos_plat:
+        tipo = get_tipo(f["name"])
+        label = "Econômico" if tipo == "E" else "Rápido" if tipo == "R" else "Plataforma"
+        st.markdown(f"**[{label}]** [{f['name']}]({f['url']})")
+ 
+    st.divider()
+    st.markdown("**Resumo para copiar:**")
+    linhas = ["📊 TABELA COMERCIAL", com["name"], com["url"], "", "📦 TABELAS DE PLATAFORMA"]
+    for f in todos_plat:
+        tipo = get_tipo(f["name"])
+        label = "[Econômico]" if tipo == "E" else "[Rápido]" if tipo == "R" else "[Plataforma]"
+        linhas.append(f"{label} {f['name']}")
+        linhas.append(f["url"])
+    resumo = "\n".join(linhas)
+    st.text_area("", value=resumo, height=200, key="resumo_final")
+    st.markdown('</div>', unsafe_allow_html=True)
