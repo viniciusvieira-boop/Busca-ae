@@ -141,7 +141,7 @@ st.markdown('<div class="card-title"><span class="step-num">1</span> Buscar tabe
  
 col1, col2 = st.columns([4, 1])
 with col1:
-    termo_com = st.text_input("", placeholder="Ex: MERCURIO, LUA, CALISTO...", label_visibility="collapsed", key="input_com")
+    termo_com = st.text_input("Buscar cliente", placeholder="Ex: MERCURIO, LUA, CALISTO...", label_visibility="collapsed", key="input_com")
 with col2:
     buscar_com = st.button("Buscar", type="primary", use_container_width=True)
  
