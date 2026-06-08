@@ -134,10 +134,22 @@ with col2:
 if buscar_com and termo_com:
     with st.spinner(f'Buscando "{termo_com}" no Drive...'):
         try:
-            st.session_state.resultados_com = buscar_recursivo(FOLDER_COM, termo_com)
+            resultados = buscar_recursivo(FOLDER_COM, termo_com)
+            st.write(f"Total encontrado: {len(resultados)}")
+            st.write(f"Termo usado: {termo_com}")
+            st.write(f"Folder ID: {FOLDER_COM}")
+            if resultados:
+                st.write(resultados)
+            else:
+                todos = listar_arquivos(FOLDER_COM)
+                st.write(f"Sem filtro encontrou: {len(todos)} arquivos")
+                st.write(todos[:5])
+            st.session_state.resultados_com = resultados
             st.session_state.com_sel = None
         except Exception as e:
             st.error(f"Erro: {e}")
+            import traceback
+            st.code(traceback.format_exc())
 
 if st.session_state.resultados_com:
     st.markdown("**Selecione a tabela comercial:**")
@@ -253,4 +265,5 @@ if st.button("Gerar Links →", type="primary", use_container_width=True,
         linhas.append(get_link(f))
     resumo = "\n".join(linhas)
     st.text_area("", value=resumo, height=200, key="resumo_final")
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_
+
