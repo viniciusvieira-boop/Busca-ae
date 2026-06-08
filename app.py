@@ -2,6 +2,7 @@ import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import json
+import re
  
 st.set_page_config(
     page_title="Busca aê",
@@ -73,7 +74,18 @@ PLATAFORMAS = [
 # ── GOOGLE DRIVE ──────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_drive_service():
-    creds_dict = json.loads(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
+    raw = st.secrets["GOOGLE_SERVICE_ACCOUNT"]
+    # Suporta tanto dict nativo do Streamlit quanto string JSON
+    if isinstance(raw, str):
+        # Corrige quebras de linha literais na private_key
+        creds_dict = json.loads(raw)
+    else:
+        creds_dict = dict(raw)
+ 
+    # Garante que \n na private_key seja interpretado corretamente
+    if "private_key" in creds_dict:
+        creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+ 
     creds = service_account.Credentials.from_service_account_info(
         creds_dict,
         scopes=["https://www.googleapis.com/auth/drive.readonly"]
@@ -110,10 +122,13 @@ def buscar_recursivo(root_id, termo):
     return arquivos
  
 def get_tipo(nome):
-    import re
     if re.search(r'_E_|_E\d', nome, re.IGNORECASE): return "E"
     if re.search(r'_R_|_R\d', nome, re.IGNORECASE): return "R"
     return None
+ 
+def get_link(f):
+    """Retorna o link do arquivo com segurança."""
+    return f.get("webViewLink") or f.get("url") or "#"
  
 # ── HEADER ────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -190,8 +205,6 @@ buscar_plat = st.button(
 )
  
 if buscar_plat:
-    m = None
-    import re
     match = re.search(r'[Vv]2?_([A-Za-z0-9]+)', st.session_state.com_sel["name"])
     termo = match.group(1).lower() if match else st.session_state.com_sel["name"].split("_")[0].lower()
  
@@ -248,25 +261,29 @@ if st.button("Gerar Links →", type="primary", use_container_width=True,
     st.markdown('<div class="card-title">Links para Compartilhamento</div>', unsafe_allow_html=True)
  
     com = st.session_state.com_sel
+    com_link = get_link(com)
+ 
     st.markdown("**📊 Tabela Comercial**")
-    st.code(com["url"])
-    st.markdown(f"[{com['name']}]({com['url']})")
+    st.code(com_link)
+    st.markdown(f"[{com['name']}]({com_link})")
  
     st.divider()
     st.markdown("**📦 Tabelas de Plataforma**")
     for f in todos_plat:
         tipo = get_tipo(f["name"])
         label = "Econômico" if tipo == "E" else "Rápido" if tipo == "R" else "Plataforma"
-        st.markdown(f"**[{label}]** [{f['name']}]({f['url']})")
+        f_link = get_link(f)
+        st.markdown(f"**[{label}]** [{f['name']}]({f_link})")
  
     st.divider()
     st.markdown("**Resumo para copiar:**")
-    linhas = ["📊 TABELA COMERCIAL", com["name"], com["url"], "", "📦 TABELAS DE PLATAFORMA"]
+    linhas = ["📊 TABELA COMERCIAL", com["name"], com_link, "", "📦 TABELAS DE PLATAFORMA"]
     for f in todos_plat:
         tipo = get_tipo(f["name"])
         label = "[Econômico]" if tipo == "E" else "[Rápido]" if tipo == "R" else "[Plataforma]"
         linhas.append(f"{label} {f['name']}")
-        linhas.append(f["url"])
+        linhas.append(get_link(f))
     resumo = "\n".join(linhas)
     st.text_area("", value=resumo, height=200, key="resumo_final")
     st.markdown('</div>', unsafe_allow_html=True)
+    
