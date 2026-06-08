@@ -265,5 +265,5 @@ if st.button("Gerar Links →", type="primary", use_container_width=True,
         linhas.append(get_link(f))
     resumo = "\n".join(linhas)
     st.text_area("", value=resumo, height=200, key="resumo_final")
-    st.markdown('</div>', unsafe_
+    st.markdown('</div>', unsafe_allow_html=True)
 
