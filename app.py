@@ -55,6 +55,7 @@ html, body, [class*="css"] {{
     height: 28px;
     width: auto;
     object-fit: contain;
+    filter: brightness(0) invert(1);
 }}
 .logo-divider {{
     width: 1px;
@@ -431,5 +432,3 @@ if todos_plat:
         except Exception as e:
             st.error(f"Erro ao baixar {f['name']}: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
-    
-       
