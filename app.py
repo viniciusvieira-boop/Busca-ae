@@ -34,6 +34,14 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     font-weight: 700; display: inline-flex; align-items: center;
     justify-content: center; margin-right: 6px;
 }
+.download-btn {
+    display: inline-block;
+    background: #00A99D; color: white !important;
+    padding: 6px 16px; border-radius: 6px;
+    text-decoration: none; font-size: 13px;
+    font-weight: 600; margin: 4px 0;
+}
+.download-btn:hover { background: #008F84; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -96,12 +104,38 @@ def buscar_recursivo(root_id, termo):
         arquivos += listar_arquivos(sub["id"], termo)
     return arquivos
 
+def extrair_partes_comercial(nome):
+    match = re.search(r'[Vv]2?_([A-Za-z0-9]+)_([A-Za-z0-9]+)_(\d+)', nome)
+    if match:
+        return match.group(1).lower(), match.group(2).lower(), match.group(3)
+    partes = re.sub(r'^[Vv]2?_', '', nome).lower().split('_')
+    if len(partes) >= 3:
+        return partes[0], partes[1], partes[2]
+    return partes[0], None, None
+
+def filtrar_por_tabela_comercial(arquivos, cliente, segmento, numero):
+    resultado = []
+    for f in arquivos:
+        nome = f["name"].lower()
+        if cliente not in nome:
+            continue
+        if segmento and segmento not in nome:
+            continue
+        if numero:
+            if f"_{numero}_" not in nome and not re.search(rf'_{numero}[_\.]', nome):
+                continue
+        resultado.append(f)
+    return resultado
+
 def get_tipo(nome):
-    if re.search(r'_E_|_E\d', nome, re.IGNORECASE): return "E"
-    if re.search(r'_R_|_R\d', nome, re.IGNORECASE): return "R"
+    if re.search(r'_e_|_e\d', nome, re.IGNORECASE): return "E"
+    if re.search(r'_r_|_r\d', nome, re.IGNORECASE): return "R"
     return None
 
-def get_link(f):
+def get_download_link(f):
+    return f"https://drive.google.com/uc?export=download&id={f['id']}"
+
+def get_view_link(f):
     return f.get("webViewLink") or "#"
 
 st.markdown("""
@@ -176,42 +210,30 @@ buscar_plat = st.button(
 )
 
 if buscar_plat:
-    match = re.search(r'[Vv]2?_([A-Za-z0-9]+)', st.session_state.com_sel["name"])
-    termo = match.group(1).lower() if match else st.session_state.com_sel["name"].split("_")[0].lower()
-
-    st.write(f"🔍 Termo extraído: `{termo}`")
-    st.write(f"📁 Folder PLAT: `{FOLDER_PLAT}`")
+    nome_com = st.session_state.com_sel["name"]
+    cliente, segmento, numero = extrair_partes_comercial(nome_com)
 
     st.session_state.resultados_plat = {}
     with st.spinner("Buscando tabelas de plataforma..."):
         try:
-            todos_arquivos = buscar_recursivo(FOLDER_PLAT, termo)
-            st.write(f"Total com filtro: {len(todos_arquivos)}")
-
-            sem_filtro = listar_arquivos(FOLDER_PLAT)
-            st.write(f"Total sem filtro: {len(sem_filtro)}")
-            if sem_filtro:
-                st.write(sem_filtro[:5])
+            todos_arquivos = buscar_recursivo(FOLDER_PLAT, cliente)
+            filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, segmento, numero)
 
             for plat in plats_selecionadas:
                 arquivos_plat = [
-                    f for f in todos_arquivos
+                    f for f in filtrados
                     if plat["key"] in f["name"].lower() or plat["label"].lower() in f["name"].lower()
                 ]
                 if arquivos_plat:
                     st.session_state.resultados_plat[plat["key"]] = {"plat": plat, "files": arquivos_plat}
 
-            if not st.session_state.resultados_plat and todos_arquivos:
+            if not st.session_state.resultados_plat and filtrados:
                 st.session_state.resultados_plat["todos"] = {
                     "plat": {"label": "Resultados", "key": "todos"},
-                    "files": todos_arquivos
+                    "files": filtrados
                 }
-
         except Exception as e:
             st.error(f"Erro: {e}")
-            import traceback
-            st.code(traceback.format_exc())
-
     st.session_state.plat_sel = {}
 
 if st.session_state.resultados_plat:
@@ -255,28 +277,33 @@ if st.button("Gerar Links →", type="primary", use_container_width=True,
     st.markdown('<div class="card-title">Links para Compartilhamento</div>', unsafe_allow_html=True)
 
     com = st.session_state.com_sel
-    com_link = get_link(com)
 
     st.markdown("**📊 Tabela Comercial**")
-    st.code(com_link)
-    st.markdown(f"[{com['name']}]({com_link})")
+    st.markdown(f"""
+        <a href="{get_download_link(com)}" class="download-btn" target="_blank">
+            ⬇️ Baixar {com['name']}
+        </a>
+    """, unsafe_allow_html=True)
 
     st.divider()
     st.markdown("**📦 Tabelas de Plataforma**")
     for f in todos_plat:
         tipo = get_tipo(f["name"])
-        label = "Econômico" if tipo == "E" else "Rápido" if tipo == "R" else "Plataforma"
-        f_link = get_link(f)
-        st.markdown(f"**[{label}]** [{f['name']}]({f_link})")
+        label = "🔵 Econômico" if tipo == "E" else "🟢 Rápido" if tipo == "R" else "📄 Plataforma"
+        st.markdown(f"""
+            <a href="{get_download_link(f)}" class="download-btn" target="_blank">
+                ⬇️ {label} — {f['name']}
+            </a>
+        """, unsafe_allow_html=True)
 
     st.divider()
     st.markdown("**Resumo para copiar:**")
-    linhas = ["📊 TABELA COMERCIAL", com["name"], com_link, "", "📦 TABELAS DE PLATAFORMA"]
+    linhas = ["📊 TABELA COMERCIAL", com["name"], get_view_link(com), "", "📦 TABELAS DE PLATAFORMA"]
     for f in todos_plat:
         tipo = get_tipo(f["name"])
         label = "[Econômico]" if tipo == "E" else "[Rápido]" if tipo == "R" else "[Plataforma]"
         linhas.append(f"{label} {f['name']}")
-        linhas.append(get_link(f))
+        linhas.append(get_view_link(f))
     resumo = "\n".join(linhas)
     st.text_area("", value=resumo, height=200, key="resumo_final")
     st.markdown('</div>', unsafe_allow_html=True)
