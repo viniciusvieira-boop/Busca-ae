@@ -38,25 +38,25 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 """, unsafe_allow_html=True)
 
 FOLDER_COM  = "1yhY8JnLQcgfOq_7rKYcbZJbiCR-yoWgT"
-FOLDER_PLAT = "1DL19N8ZqrpG15HiknXykmLdIdIj5UBbK"
+FOLDER_PLAT = "1skvokx1uRKgdgiRh3qUbd8qfUiatKpFA"
 
 PLATAFORMAS = [
-    {"key": "amazon",         "label": "Amazon",          "sub": "Marketplace", "id": "1gvcz9iQ0bDHRl9YEl9DRBD_gdsitkdG7"},
-    {"key": "meli",           "label": "Mercado Livre",   "sub": "Marketplace", "id": "1mfOP-AYCe3BzydffU0pq0fOYgXtRGLaF"},
-    {"key": "b2w",            "label": "B2W",             "sub": "Marketplace", "id": "1P7d7xkewAfhydvpiYwDz_YPfPT7HJ6_2"},
-    {"key": "via_varejo",     "label": "Via Varejo",      "sub": "Marketplace", "id": "1055Sg2h1fKUVN0VTWCMMHl1LQ7eoyF50"},
-    {"key": "magazine_luiza", "label": "Magalu",          "sub": "Marketplace", "id": "1QjUk7niyicDcCTJr27rkX9PlaVeqJD8v"},
-    {"key": "carrefour",      "label": "Carrefour",       "sub": "Marketplace", "id": "1VAJo9tMKo5i0IbI3wAbKkae3Ey3wnt0e"},
-    {"key": "dafiti",         "label": "Dafiti",          "sub": "Marketplace", "id": "1Qo2g0POEc0JbrxGFICb36ZsUvDUnhg3J"},
-    {"key": "madeira",        "label": "Madeira Madeira", "sub": "Marketplace", "id": "1wdHCbiQP2rCTXSOjXbnSRplpa1LOV84C"},
-    {"key": "vtex",           "label": "VTEX",            "sub": "Plataforma",  "id": "10NAi9CjhKdZ4E04Zy5GJLkIguvO5V753"},
-    {"key": "loja_integrada", "label": "Loja Integrada",  "sub": "Plataforma",  "id": "1IeK1dQqf0hF3I_z55YVjblZ2ZmQhhIYe"},
-    {"key": "linx",           "label": "Linx",            "sub": "Plataforma",  "id": "1JqSqDajBK0CMjPMWLqahR0V9VjLe6XCz"},
-    {"key": "jetcommerce",    "label": "JetCommerce",     "sub": "Plataforma",  "id": "1br55XP-ttO7ujWel4xsscEGncDoQ4ywX"},
-    {"key": "ezcommerce",     "label": "EZCommerce",      "sub": "Plataforma",  "id": "1JftDI_AlQHUH3RGOMWDtIcWDqTCPwXGp"},
-    {"key": "ciashop",        "label": "CiaShop",         "sub": "Plataforma",  "id": "1KoTm3_ezHfDeVgjqBheDIP29GvXqexcw"},
-    {"key": "convertize",     "label": "Convertize",      "sub": "Plataforma",  "id": "1Lug4jzTLu7xx_Cs5kYZy88jsYkB5iMhK"},
-    {"key": "intelipost",     "label": "Intelipost",      "sub": "Logística",   "id": "103h4GxDTGCDv65LUyQuz3Fr1rvq0n2Mr"},
+    {"key": "amazon",         "label": "Amazon",          "sub": "Marketplace"},
+    {"key": "meli",           "label": "Mercado Livre",   "sub": "Marketplace"},
+    {"key": "b2w",            "label": "B2W",             "sub": "Marketplace"},
+    {"key": "via_varejo",     "label": "Via Varejo",      "sub": "Marketplace"},
+    {"key": "magazine_luiza", "label": "Magalu",          "sub": "Marketplace"},
+    {"key": "carrefour",      "label": "Carrefour",       "sub": "Marketplace"},
+    {"key": "dafiti",         "label": "Dafiti",          "sub": "Marketplace"},
+    {"key": "madeira",        "label": "Madeira Madeira", "sub": "Marketplace"},
+    {"key": "vtex",           "label": "VTEX",            "sub": "Plataforma"},
+    {"key": "loja_integrada", "label": "Loja Integrada",  "sub": "Plataforma"},
+    {"key": "linx",           "label": "Linx",            "sub": "Plataforma"},
+    {"key": "jetcommerce",    "label": "JetCommerce",     "sub": "Plataforma"},
+    {"key": "ezcommerce",     "label": "EZCommerce",      "sub": "Plataforma"},
+    {"key": "ciashop",        "label": "CiaShop",         "sub": "Plataforma"},
+    {"key": "convertize",     "label": "Convertize",      "sub": "Plataforma"},
+    {"key": "intelipost",     "label": "Intelipost",      "sub": "Logística"},
 ]
 
 @st.cache_resource
@@ -104,6 +104,13 @@ def get_tipo(nome):
 def get_link(f):
     return f.get("webViewLink") or "#"
 
+def detectar_plataforma(nome):
+    nome_lower = nome.lower()
+    for plat in PLATAFORMAS:
+        if plat["key"] in nome_lower or plat["label"].lower() in nome_lower:
+            return plat
+    return None
+
 st.markdown("""
 <div class="header">
   <div>
@@ -121,8 +128,6 @@ if "resultados_com" not in st.session_state:
     st.session_state.resultados_com = []
 if "resultados_plat" not in st.session_state:
     st.session_state.resultados_plat = {}
-if "plats_selecionadas" not in st.session_state:
-    st.session_state.plats_selecionadas = []
 
 # ── PASSO 1 ───────────────────────────────────────────────────────────────────
 st.markdown('<div class="card">', unsafe_allow_html=True)
@@ -170,12 +175,11 @@ for i, plat in enumerate(PLATAFORMAS):
 st.divider()
 tipo_filtro = st.radio("Tipo de tabela", ["Todos", "Econômico (E_)", "Rápido (R_)"], horizontal=True)
 
-pode_buscar = st.session_state.com_sel is not None and len(plats_selecionadas) > 0
 buscar_plat = st.button(
     "🔍 Buscar tabelas para este cliente",
     type="primary",
     use_container_width=True,
-    disabled=not pode_buscar
+    disabled=not (st.session_state.com_sel and len(plats_selecionadas) > 0)
 )
 
 if buscar_plat:
@@ -183,14 +187,27 @@ if buscar_plat:
     termo = match.group(1).lower() if match else st.session_state.com_sel["name"].split("_")[0].lower()
 
     st.session_state.resultados_plat = {}
-    for plat in plats_selecionadas:
-        with st.spinner(f"Buscando em {plat['label']}..."):
-            try:
-                files = listar_arquivos(plat["id"], termo)
-                if files:
-                    st.session_state.resultados_plat[plat["key"]] = {"plat": plat, "files": files}
-            except Exception as e:
-                st.warning(f"Erro em {plat['label']}: {e}")
+    with st.spinner("Buscando tabelas de plataforma..."):
+        try:
+            # Busca todos os arquivos com o termo na pasta única
+            todos_arquivos = buscar_recursivo(FOLDER_PLAT, termo)
+
+            # Agrupa por plataforma selecionada
+            for plat in plats_selecionadas:
+                arquivos_plat = [
+                    f for f in todos_arquivos
+                    if plat["key"] in f["name"].lower() or plat["label"].lower() in f["name"].lower()
+                ]
+                if arquivos_plat:
+                    st.session_state.resultados_plat[plat["key"]] = {"plat": plat, "files": arquivos_plat}
+
+            if not st.session_state.resultados_plat:
+                # Se não encontrou por plataforma, mostra tudo
+                if todos_arquivos:
+                    st.session_state.resultados_plat["todos"] = {"plat": {"label": "Resultados", "key": "todos"}, "files": todos_arquivos}
+
+        except Exception as e:
+            st.error(f"Erro: {e}")
     st.session_state.plat_sel = {}
 
 if st.session_state.resultados_plat:
