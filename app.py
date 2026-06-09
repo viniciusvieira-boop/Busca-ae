@@ -121,7 +121,10 @@ if "resultados_com" not in st.session_state:
     st.session_state.resultados_com = []
 if "resultados_plat" not in st.session_state:
     st.session_state.resultados_plat = {}
+if "plats_selecionadas" not in st.session_state:
+    st.session_state.plats_selecionadas = []
 
+# ── PASSO 1 ───────────────────────────────────────────────────────────────────
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.markdown('<div class="card-title"><span class="step-num">1</span> Buscar tabela comercial</div>', unsafe_allow_html=True)
 
@@ -134,22 +137,10 @@ with col2:
 if buscar_com and termo_com:
     with st.spinner(f'Buscando "{termo_com}" no Drive...'):
         try:
-            resultados = buscar_recursivo(FOLDER_COM, termo_com)
-            st.write(f"Total encontrado: {len(resultados)}")
-            st.write(f"Termo usado: {termo_com}")
-            st.write(f"Folder ID: {FOLDER_COM}")
-            if resultados:
-                st.write(resultados)
-            else:
-                todos = listar_arquivos(FOLDER_COM)
-                st.write(f"Sem filtro encontrou: {len(todos)} arquivos")
-                st.write(todos[:5])
-            st.session_state.resultados_com = resultados
+            st.session_state.resultados_com = buscar_recursivo(FOLDER_COM, termo_com)
             st.session_state.com_sel = None
         except Exception as e:
             st.error(f"Erro: {e}")
-            import traceback
-            st.code(traceback.format_exc())
 
 if st.session_state.resultados_com:
     st.markdown("**Selecione a tabela comercial:**")
@@ -158,13 +149,13 @@ if st.session_state.resultados_com:
         label = f"{'✅' if is_sel else '📄'} {f['name']}"
         if st.button(label, key=f"com_{f['id']}", use_container_width=True):
             st.session_state.com_sel = f
-            st.rerun()
 
 if st.session_state.com_sel:
     st.success(f"✓ Selecionado: {st.session_state.com_sel['name']}")
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+# ── PASSO 2 ───────────────────────────────────────────────────────────────────
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.markdown('<div class="card-title"><span class="step-num">2</span> Selecione as plataformas</div>', unsafe_allow_html=True)
 
@@ -172,18 +163,19 @@ cols = st.columns(4)
 plats_selecionadas = []
 for i, plat in enumerate(PLATAFORMAS):
     with cols[i % 4]:
-        checked = st.checkbox(f"{plat['label']}\n{plat['sub']}", key=f"chip_{plat['key']}")
+        checked = st.checkbox(f"{plat['label']} {plat['sub']}", key=f"chip_{plat['key']}")
         if checked:
             plats_selecionadas.append(plat)
 
 st.divider()
 tipo_filtro = st.radio("Tipo de tabela", ["Todos", "Econômico (E_)", "Rápido (R_)"], horizontal=True)
 
+pode_buscar = st.session_state.com_sel is not None and len(plats_selecionadas) > 0
 buscar_plat = st.button(
     "🔍 Buscar tabelas para este cliente",
     type="primary",
     use_container_width=True,
-    disabled=not (st.session_state.com_sel and len(plats_selecionadas) > 0)
+    disabled=not pode_buscar
 )
 
 if buscar_plat:
@@ -232,6 +224,7 @@ if st.session_state.resultados_plat:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
+# ── GERAR LINKS ───────────────────────────────────────────────────────────────
 todos_plat = [f for files in st.session_state.plat_sel.values() for f in files]
 
 if st.button("Gerar Links →", type="primary", use_container_width=True,
