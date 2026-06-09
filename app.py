@@ -11,6 +11,37 @@ st.set_page_config(
     layout="wide"
 )
 
+def check_password():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    if st.session_state.authenticated:
+        return True
+
+    st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+    </style>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("## 🔍 Busca aê")
+        st.markdown("**Compartilhador de Tabelas — Comercial & Plataforma**")
+        st.divider()
+        senha = st.text_input("Senha de acesso", type="password", key="senha_input")
+        if st.button("Entrar", type="primary", use_container_width=True):
+            if senha == st.secrets["APP_PASSWORD"]:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta!")
+    return False
+
+if not check_password():
+    st.stop()
+
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
@@ -290,16 +321,15 @@ if todos_plat:
     for f in todos_plat:
         tipo = get_tipo(f["name"])
         label = "🔵 Econômico" if tipo == "E" else "🟢 Rápido" if tipo == "R" else "📄"
-        with st.spinner(f"Preparando {f['name']}..."):
-            try:
-                dados = baixar_arquivo(f["id"], f["name"])
-                st.download_button(
-                    label=f"⬇️ {label} — {f['name']}",
-                    data=dados,
-                    file_name=f["name"],
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key=f"dl_{f['id']}"
-                )
-            except Exception as e:
-                st.error(f"Erro ao baixar {f['name']}: {e}")
+        try:
+            dados = baixar_arquivo(f["id"], f["name"])
+            st.download_button(
+                label=f"⬇️ {label} — {f['name']}",
+                data=dados,
+                file_name=f["name"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_{f['id']}"
+            )
+        except Exception as e:
+            st.error(f"Erro ao baixar {f['name']}: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
