@@ -1,6 +1,8 @@
 import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseDownload
+import io
 import re
 
 st.set_page_config(
@@ -34,14 +36,6 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     font-weight: 700; display: inline-flex; align-items: center;
     justify-content: center; margin-right: 6px;
 }
-.download-btn {
-    display: inline-block;
-    background: #00A99D; color: white !important;
-    padding: 6px 16px; border-radius: 6px;
-    text-decoration: none; font-size: 13px;
-    font-weight: 600; margin: 4px 0;
-}
-.download-btn:hover { background: #008F84; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -107,22 +101,20 @@ def buscar_recursivo(root_id, termo):
 def extrair_partes_comercial(nome):
     match = re.search(r'[Vv]2?_([A-Za-z0-9]+)_([A-Za-z0-9]+)_(\d+)', nome)
     if match:
-        return match.group(1).lower(), match.group(2).lower(), match.group(3)
+        return match.group(1).lower(), match.group(3)
     partes = re.sub(r'^[Vv]2?_', '', nome).lower().split('_')
     if len(partes) >= 3:
-        return partes[0], partes[1], partes[2]
-    return partes[0], None, None
+        return partes[0], partes[2]
+    return partes[0], None
 
-def filtrar_por_tabela_comercial(arquivos, cliente, segmento, numero):
+def filtrar_por_tabela_comercial(arquivos, cliente, numero):
     resultado = []
     for f in arquivos:
         nome = f["name"].lower()
         if cliente not in nome:
             continue
-        if segmento and segmento not in nome:
-            continue
         if numero:
-            if f"_{numero}_" not in nome and not re.search(rf'_{numero}[_\.]', nome):
+            if not re.search(rf'_{numero}[_\.]', nome):
                 continue
         resultado.append(f)
     return resultado
@@ -132,11 +124,16 @@ def get_tipo(nome):
     if re.search(r'_r_|_r\d', nome, re.IGNORECASE): return "R"
     return None
 
-def get_download_link(f):
-    return f"https://drive.google.com/uc?export=download&id={f['id']}"
-
-def get_view_link(f):
-    return f.get("webViewLink") or "#"
+def baixar_arquivo(file_id, file_name):
+    service = get_drive_service()
+    request = service.files().get_media(fileId=file_id)
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+    done = False
+    while not done:
+        _, done = downloader.next_chunk()
+    buffer.seek(0)
+    return buffer.read()
 
 st.markdown("""
 <div class="header">
@@ -183,7 +180,23 @@ if st.session_state.resultados_com:
             st.session_state.com_sel = f
 
 if st.session_state.com_sel:
-    st.success(f"✓ Selecionado: {st.session_state.com_sel['name']}")
+    col_info, col_dl = st.columns([3, 1])
+    with col_info:
+        st.success(f"✓ Selecionado: {st.session_state.com_sel['name']}")
+    with col_dl:
+        if st.button("⬇️ Baixar tabela comercial", use_container_width=True):
+            with st.spinner("Baixando..."):
+                dados = baixar_arquivo(
+                    st.session_state.com_sel["id"],
+                    st.session_state.com_sel["name"]
+                )
+                st.download_button(
+                    label="📥 Clique para salvar",
+                    data=dados,
+                    file_name=st.session_state.com_sel["name"],
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_com"
+                )
 
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -211,13 +224,13 @@ buscar_plat = st.button(
 
 if buscar_plat:
     nome_com = st.session_state.com_sel["name"]
-    cliente, segmento, numero = extrair_partes_comercial(nome_com)
+    cliente, numero = extrair_partes_comercial(nome_com)
 
     st.session_state.resultados_plat = {}
     with st.spinner("Buscando tabelas de plataforma..."):
         try:
             todos_arquivos = buscar_recursivo(FOLDER_PLAT, cliente)
-            filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, segmento, numero)
+            filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, numero)
 
             for plat in plats_selecionadas:
                 arquivos_plat = [
@@ -267,43 +280,26 @@ if st.session_state.resultados_plat:
 
 st.markdown('</div>', unsafe_allow_html=True)
 
-# ── GERAR LINKS ───────────────────────────────────────────────────────────────
+# ── GERAR DOWNLOADS ───────────────────────────────────────────────────────────
 todos_plat = [f for files in st.session_state.plat_sel.values() for f in files]
 
-if st.button("Gerar Links →", type="primary", use_container_width=True,
-             disabled=not (st.session_state.com_sel and len(todos_plat) > 0)):
-
+if todos_plat:
     st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="card-title">Links para Compartilhamento</div>', unsafe_allow_html=True)
-
-    com = st.session_state.com_sel
-
-    st.markdown("**📊 Tabela Comercial**")
-    st.markdown(f"""
-        <a href="{get_download_link(com)}" class="download-btn" target="_blank">
-            ⬇️ Baixar {com['name']}
-        </a>
-    """, unsafe_allow_html=True)
-
-    st.divider()
-    st.markdown("**📦 Tabelas de Plataforma**")
+    st.markdown('<div class="card-title">📥 Downloads</div>', unsafe_allow_html=True)
+    st.markdown("**📦 Tabelas de Plataforma selecionadas:**")
     for f in todos_plat:
         tipo = get_tipo(f["name"])
-        label = "🔵 Econômico" if tipo == "E" else "🟢 Rápido" if tipo == "R" else "📄 Plataforma"
-        st.markdown(f"""
-            <a href="{get_download_link(f)}" class="download-btn" target="_blank">
-                ⬇️ {label} — {f['name']}
-            </a>
-        """, unsafe_allow_html=True)
-
-    st.divider()
-    st.markdown("**Resumo para copiar:**")
-    linhas = ["📊 TABELA COMERCIAL", com["name"], get_view_link(com), "", "📦 TABELAS DE PLATAFORMA"]
-    for f in todos_plat:
-        tipo = get_tipo(f["name"])
-        label = "[Econômico]" if tipo == "E" else "[Rápido]" if tipo == "R" else "[Plataforma]"
-        linhas.append(f"{label} {f['name']}")
-        linhas.append(get_view_link(f))
-    resumo = "\n".join(linhas)
-    st.text_area("", value=resumo, height=200, key="resumo_final")
+        label = "🔵 Econômico" if tipo == "E" else "🟢 Rápido" if tipo == "R" else "📄"
+        with st.spinner(f"Preparando {f['name']}..."):
+            try:
+                dados = baixar_arquivo(f["id"], f["name"])
+                st.download_button(
+                    label=f"⬇️ {label} — {f['name']}",
+                    data=dados,
+                    file_name=f["name"],
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key=f"dl_{f['id']}"
+                )
+            except Exception as e:
+                st.error(f"Erro ao baixar {f['name']}: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
