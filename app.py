@@ -104,13 +104,6 @@ def get_tipo(nome):
 def get_link(f):
     return f.get("webViewLink") or "#"
 
-def detectar_plataforma(nome):
-    nome_lower = nome.lower()
-    for plat in PLATAFORMAS:
-        if plat["key"] in nome_lower or plat["label"].lower() in nome_lower:
-            return plat
-    return None
-
 st.markdown("""
 <div class="header">
   <div>
@@ -186,13 +179,20 @@ if buscar_plat:
     match = re.search(r'[Vv]2?_([A-Za-z0-9]+)', st.session_state.com_sel["name"])
     termo = match.group(1).lower() if match else st.session_state.com_sel["name"].split("_")[0].lower()
 
+    st.write(f"🔍 Termo extraído: `{termo}`")
+    st.write(f"📁 Folder PLAT: `{FOLDER_PLAT}`")
+
     st.session_state.resultados_plat = {}
     with st.spinner("Buscando tabelas de plataforma..."):
         try:
-            # Busca todos os arquivos com o termo na pasta única
             todos_arquivos = buscar_recursivo(FOLDER_PLAT, termo)
+            st.write(f"Total com filtro: {len(todos_arquivos)}")
 
-            # Agrupa por plataforma selecionada
+            sem_filtro = listar_arquivos(FOLDER_PLAT)
+            st.write(f"Total sem filtro: {len(sem_filtro)}")
+            if sem_filtro:
+                st.write(sem_filtro[:5])
+
             for plat in plats_selecionadas:
                 arquivos_plat = [
                     f for f in todos_arquivos
@@ -201,13 +201,17 @@ if buscar_plat:
                 if arquivos_plat:
                     st.session_state.resultados_plat[plat["key"]] = {"plat": plat, "files": arquivos_plat}
 
-            if not st.session_state.resultados_plat:
-                # Se não encontrou por plataforma, mostra tudo
-                if todos_arquivos:
-                    st.session_state.resultados_plat["todos"] = {"plat": {"label": "Resultados", "key": "todos"}, "files": todos_arquivos}
+            if not st.session_state.resultados_plat and todos_arquivos:
+                st.session_state.resultados_plat["todos"] = {
+                    "plat": {"label": "Resultados", "key": "todos"},
+                    "files": todos_arquivos
+                }
 
         except Exception as e:
             st.error(f"Erro: {e}")
+            import traceback
+            st.code(traceback.format_exc())
+
     st.session_state.plat_sel = {}
 
 if st.session_state.resultados_plat:
@@ -276,4 +280,3 @@ if st.button("Gerar Links →", type="primary", use_container_width=True,
     resumo = "\n".join(linhas)
     st.text_area("", value=resumo, height=200, key="resumo_final")
     st.markdown('</div>', unsafe_allow_html=True)
-
