@@ -37,7 +37,7 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
 </style>
 """, unsafe_allow_html=True)
 
-FOLDER_COM  = "1mSDwYd4BSNpykLDXBA3dYSKSUjPxp17z"
+FOLDER_COM  = "1yhY8JnLQcgfOq_7rKYcbZJbiCR-yoWgT"
 FOLDER_PLAT = "1DL19N8ZqrpG15HiknXykmLdIdIj5UBbK"
 
 PLATAFORMAS = [
