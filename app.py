@@ -58,7 +58,7 @@ PLATAFORMAS = [
     {"key": "ezcommerce",     "label": "EZCommerce",      "sub": "Plataforma"},
     {"key": "ciashop",        "label": "CiaShop",         "sub": "Plataforma"},
     {"key": "convertize",     "label": "Convertize",      "sub": "Plataforma"},
-    {"key": "intelipost",     "label": "Intelipost",      "sub": "Logística"},
+    {"key": "intelipost",     "label": "Intelipost",      "sub": "Logistica"},
 ]
 
 @st.cache_resource
@@ -137,4 +137,162 @@ def baixar_arquivo(file_id):
 
 st.markdown("""
 <div class="header">
-  <div
+  <div>
+    <h1>Busca ae</h1>
+    <p>Compartilhador de Tabelas - Comercial &amp; Plataforma</p>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+if "com_sel" not in st.session_state:
+    st.session_state.com_sel = None
+if "plat_sel" not in st.session_state:
+    st.session_state.plat_sel = {}
+if "resultados_com" not in st.session_state:
+    st.session_state.resultados_com = []
+if "resultados_plat" not in st.session_state:
+    st.session_state.resultados_plat = {}
+
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<div class="card-title"><span class="step-num">1</span> Buscar tabela comercial</div>', unsafe_allow_html=True)
+
+col1, col2 = st.columns([4, 1])
+with col1:
+    termo_com = st.text_input("Buscar cliente", placeholder="Ex: MERCURIO, LUA, CALISTO...", label_visibility="collapsed", key="input_com")
+with col2:
+    buscar_com = st.button("Buscar", type="primary", use_container_width=True)
+
+if buscar_com and termo_com:
+    with st.spinner(f'Buscando "{termo_com}" no Drive...'):
+        try:
+            st.session_state.resultados_com = buscar_recursivo(FOLDER_COM, termo_com)
+            st.session_state.com_sel = None
+        except Exception as e:
+            st.error(f"Erro: {e}")
+
+if st.session_state.resultados_com:
+    st.markdown("**Selecione a tabela comercial:**")
+    for f in st.session_state.resultados_com:
+        is_sel = st.session_state.com_sel and st.session_state.com_sel["id"] == f["id"]
+        label = f"{'✅' if is_sel else '📄'} {f['name']}"
+        if st.button(label, key=f"com_{f['id']}", use_container_width=True):
+            st.session_state.com_sel = f
+
+if st.session_state.com_sel:
+    col_info, col_dl = st.columns([3, 1])
+    with col_info:
+        st.success(f"Selecionado: {st.session_state.com_sel['name']}")
+    with col_dl:
+        if st.button("Baixar tabela comercial", use_container_width=True):
+            with st.spinner("Baixando..."):
+                dados = baixar_arquivo(st.session_state.com_sel["id"])
+                st.download_button(
+                    label="Clique para salvar",
+                    data=dados,
+                    file_name=st.session_state.com_sel["name"],
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_com"
+                )
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+st.markdown('<div class="card">', unsafe_allow_html=True)
+st.markdown('<div class="card-title"><span class="step-num">2</span> Selecione as plataformas</div>', unsafe_allow_html=True)
+
+cols = st.columns(4)
+plats_selecionadas = []
+for i, plat in enumerate(PLATAFORMAS):
+    with cols[i % 4]:
+        checked = st.checkbox(f"{plat['label']} {plat['sub']}", key=f"chip_{plat['key']}")
+        if checked:
+            plats_selecionadas.append(plat)
+
+st.divider()
+tipo_filtro = st.radio("Tipo de tabela", ["Todos", "Economico (E_)", "Rapido (R_)"], horizontal=True)
+
+buscar_plat = st.button(
+    "Buscar tabelas para este cliente",
+    type="primary",
+    use_container_width=True,
+    disabled=not (st.session_state.com_sel and len(plats_selecionadas) > 0)
+)
+
+if buscar_plat:
+    nome_com = st.session_state.com_sel["name"]
+    cliente, numero = extrair_partes_comercial(nome_com)
+
+    st.session_state.resultados_plat = {}
+    with st.spinner("Buscando tabelas de plataforma..."):
+        try:
+            todos_arquivos = buscar_recursivo(FOLDER_PLAT, cliente)
+            filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, numero)
+
+            for plat in plats_selecionadas:
+                arquivos_plat = [
+                    f for f in filtrados
+                    if plat["key"] in f["name"].lower() or plat["label"].lower() in f["name"].lower()
+                ]
+                if arquivos_plat:
+                    st.session_state.resultados_plat[plat["key"]] = {"plat": plat, "files": arquivos_plat}
+
+            if not st.session_state.resultados_plat and filtrados:
+                st.session_state.resultados_plat["todos"] = {
+                    "plat": {"label": "Resultados", "key": "todos"},
+                    "files": filtrados
+                }
+        except Exception as e:
+            st.error(f"Erro: {e}")
+    st.session_state.plat_sel = {}
+
+if st.session_state.resultados_plat:
+    st.markdown("**Selecione as tabelas de plataforma:**")
+    for key, dados in st.session_state.resultados_plat.items():
+        plat = dados["plat"]
+        files = dados["files"]
+
+        if tipo_filtro == "Economico (E_)":
+            files = [f for f in files if get_tipo(f["name"]) == "E"]
+        elif tipo_filtro == "Rapido (R_)":
+            files = [f for f in files if get_tipo(f["name"]) == "R"]
+
+        if not files:
+            continue
+
+        st.markdown(f"**{plat['label']}** - {len(files)} arquivo(s)")
+        for f in files:
+            tipo = get_tipo(f["name"])
+            tipo_badge = "E" if tipo == "E" else "R" if tipo == "R" else ""
+            key_sel = f"plat_{f['id']}"
+            checked = st.checkbox(f"{tipo_badge} {f['name']}", key=key_sel)
+            if checked:
+                if key not in st.session_state.plat_sel:
+                    st.session_state.plat_sel[key] = []
+                if not any(x["id"] == f["id"] for x in st.session_state.plat_sel[key]):
+                    st.session_state.plat_sel[key].append(f)
+            else:
+                if key in st.session_state.plat_sel:
+                    st.session_state.plat_sel[key] = [x for x in st.session_state.plat_sel[key] if x["id"] != f["id"]]
+
+st.markdown('</div>', unsafe_allow_html=True)
+
+todos_plat = [f for files in st.session_state.plat_sel.values() for f in files]
+
+if todos_plat:
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="card-title">Downloads</div>', unsafe_allow_html=True)
+    st.markdown("**Tabelas de Plataforma selecionadas:**")
+    for f in todos_plat:
+        tipo = get_tipo(f["name"])
+        label = "Economico" if tipo == "E" else "Rapido" if tipo == "R" else "Plataforma"
+        try:
+            dados = baixar_arquivo(f["id"])
+            st.download_button(
+                label=f"{label} - {f['name']}",
+                data=dados,
+                file_name=f["name"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"dl_{f['id']}"
+            )
+        except Exception as e:
+            st.error(f"Erro ao baixar {f['name']}: {e}")
+    st.markdown('</div>', unsafe_allow_html=True)
