@@ -237,20 +237,28 @@ def listar_subpastas(folder_id):
     return result.get("files", [])
 
 def buscar_recursivo(root_id, termo):
-    """Busca paralela com ThreadPoolExecutor — todas as subpastas consultadas simultaneamente."""
+    """Busca paralela com ThreadPoolExecutor (3 workers) e retry automático em falhas SSL."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    import time
 
     arquivos = []
 
-    def buscar_pasta(folder_id):
-        found = listar_arquivos(folder_id, termo)
-        subs  = listar_subpastas(folder_id)
-        return found, subs
+    def buscar_pasta(folder_id, tentativas=3):
+        for i in range(tentativas):
+            try:
+                found = listar_arquivos(folder_id, termo)
+                subs  = listar_subpastas(folder_id)
+                return found, subs
+            except Exception:
+                if i < tentativas - 1:
+                    time.sleep(0.5 * (i + 1))
+                else:
+                    return [], []
 
     pastas_pendentes = [root_id]
 
     while pastas_pendentes:
-        with ThreadPoolExecutor(max_workers=10) as executor:
+        with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {executor.submit(buscar_pasta, fid): fid for fid in pastas_pendentes}
             pastas_pendentes = []
             for future in as_completed(futures):
