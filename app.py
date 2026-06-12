@@ -206,18 +206,11 @@ def get_drive_service():
     )
     return build("drive", "v3", credentials=creds)
 
-def buscar_recursivo(root_id, termo):
-    """
-    ✅ Busca otimizada: uma única chamada à API usando 'ancestors'
-    varre toda a hierarquia de subpastas de uma vez, sem loops recursivos.
-    """
+def listar_arquivos(folder_id, nome_filtro=None):
     service = get_drive_service()
-    q = (
-        f"'{root_id}' in ancestors"
-        f" and trashed=false"
-        f" and mimeType!='application/vnd.google-apps.folder'"
-        f" and name contains '{termo}'"
-    )
+    q = f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'"
+    if nome_filtro:
+        q += f" and name contains '{nome_filtro}'"
     arquivos = []
     page_token = None
     while True:
@@ -231,6 +224,40 @@ def buscar_recursivo(root_id, termo):
         page_token = result.get("nextPageToken")
         if not page_token:
             break
+    return arquivos
+
+def listar_subpastas(folder_id):
+    service = get_drive_service()
+    q = f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'"
+    result = service.files().list(
+        q=q,
+        fields="files(id,name)",
+        pageSize=100
+    ).execute()
+    return result.get("files", [])
+
+def buscar_recursivo(root_id, termo):
+    """Busca paralela com ThreadPoolExecutor — todas as subpastas consultadas simultaneamente."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    arquivos = []
+
+    def buscar_pasta(folder_id):
+        found = listar_arquivos(folder_id, termo)
+        subs  = listar_subpastas(folder_id)
+        return found, subs
+
+    pastas_pendentes = [root_id]
+
+    while pastas_pendentes:
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(buscar_pasta, fid): fid for fid in pastas_pendentes}
+            pastas_pendentes = []
+            for future in as_completed(futures):
+                found, subs = future.result()
+                arquivos += found
+                pastas_pendentes += [s["id"] for s in subs]
+
     return arquivos
 
 def extrair_partes_comercial(nome):
