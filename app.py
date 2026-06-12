@@ -206,40 +206,31 @@ def get_drive_service():
     )
     return build("drive", "v3", credentials=creds)
 
-def listar_arquivos(folder_id, nome_filtro=None):
+def buscar_recursivo(root_id, termo):
+    """
+    ✅ Busca otimizada: uma única chamada à API usando 'ancestors'
+    varre toda a hierarquia de subpastas de uma vez, sem loops recursivos.
+    """
     service = get_drive_service()
-    q = f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'"
-    if nome_filtro:
-        q += f" and name contains '{nome_filtro}'"
-    result = service.files().list(
-        q=q,
-        fields="files(id,name,webViewLink)",
-        pageSize=100
-    ).execute()
-    return result.get("files", [])
-
-def listar_subpastas(folder_id):
-    service = get_drive_service()
-    q = f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'"
-    result = service.files().list(
-        q=q,
-        fields="files(id,name)",
-        pageSize=100
-    ).execute()
-    return result.get("files", [])
-
-# ✅ Busca recursiva corrigida — desce todos os níveis de subpastas
-def buscar_recursivo(root_id, termo, _profundidade=0, _max_profundidade=5):
-    """Busca arquivos recursivamente em todas as subpastas, até _max_profundidade níveis."""
-    if _profundidade > _max_profundidade:
-        return []
-
-    arquivos = listar_arquivos(root_id, termo)
-    subpastas = listar_subpastas(root_id)
-
-    for sub in subpastas:
-        arquivos += buscar_recursivo(sub["id"], termo, _profundidade + 1, _max_profundidade)
-
+    q = (
+        f"'{root_id}' in ancestors"
+        f" and trashed=false"
+        f" and mimeType!='application/vnd.google-apps.folder'"
+        f" and name contains '{termo}'"
+    )
+    arquivos = []
+    page_token = None
+    while True:
+        result = service.files().list(
+            q=q,
+            fields="nextPageToken, files(id,name,webViewLink)",
+            pageSize=100,
+            pageToken=page_token
+        ).execute()
+        arquivos += result.get("files", [])
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            break
     return arquivos
 
 def extrair_partes_comercial(nome):
@@ -439,5 +430,3 @@ if todos_plat:
         except Exception as e:
             st.error(f"Erro ao baixar {f['name']}: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
-    
-        
