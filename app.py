@@ -206,7 +206,9 @@ def get_drive_service():
     )
     return build("drive", "v3", credentials=creds)
 
-def listar_arquivos(folder_id, nome_filtro=None):
+@st.cache_data(ttl=600, show_spinner=False)
+def listar_arquivos_cached(folder_id, nome_filtro=None):
+    """Lista arquivos de uma pasta. Cache de 10 minutos."""
     service = get_drive_service()
     q = f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'"
     if nome_filtro:
@@ -226,7 +228,9 @@ def listar_arquivos(folder_id, nome_filtro=None):
             break
     return arquivos
 
-def listar_subpastas(folder_id):
+@st.cache_data(ttl=600, show_spinner=False)
+def listar_subpastas_cached(folder_id):
+    """Lista subpastas de uma pasta. Cache de 10 minutos."""
     service = get_drive_service()
     q = f"'{folder_id}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'"
     result = service.files().list(
@@ -237,35 +241,14 @@ def listar_subpastas(folder_id):
     return result.get("files", [])
 
 def buscar_recursivo(root_id, termo):
-    """Busca paralela com ThreadPoolExecutor (3 workers) e retry automático em falhas SSL."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    import time
-
-    arquivos = []
-
-    def buscar_pasta(folder_id, tentativas=3):
-        for i in range(tentativas):
-            try:
-                found = listar_arquivos(folder_id, termo)
-                subs  = listar_subpastas(folder_id)
-                return found, subs
-            except Exception:
-                if i < tentativas - 1:
-                    time.sleep(0.5 * (i + 1))
-                else:
-                    return [], []
-
-    pastas_pendentes = [root_id]
-
-    while pastas_pendentes:
-        with ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {executor.submit(buscar_pasta, fid): fid for fid in pastas_pendentes}
-            pastas_pendentes = []
-            for future in as_completed(futures):
-                found, subs = future.result()
-                arquivos += found
-                pastas_pendentes += [s["id"] for s in subs]
-
+    """
+    Busca sequencial recursiva com cache por pasta.
+    Na primeira busca percorre tudo; nas seguintes usa cache (10 min).
+    """
+    arquivos = listar_arquivos_cached(root_id, termo)
+    subpastas = listar_subpastas_cached(root_id)
+    for sub in subpastas:
+        arquivos += buscar_recursivo(sub["id"], termo)
     return arquivos
 
 def extrair_partes_comercial(nome):
