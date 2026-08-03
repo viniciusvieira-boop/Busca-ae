@@ -304,28 +304,34 @@ def filtrar_por_tabela_comercial(arquivos, cliente, tipo_partes, numero):
     empurrar o filtro para a query do Drive: `name contains` no Drive é uma
     busca simples de substring, então esse regex evita falsos positivos.
 
-    Exige, com fronteiras de "_" para evitar match parcial indevido:
-      - o cliente no nome
-      - CADA segmento de tipo_partes (ex: "spc" e "mvb") no nome
-      - o número, quando houver
+    Diferente de só checar se cada segmento de tipo_partes ESTÁ PRESENTE no
+    nome, aqui é extraído o conjunto EXATO de segmentos de tipo do arquivo
+    (o trecho entre o nome do cliente e o número) e comparado como conjunto
+    com tipo_partes. Isso evita que uma variante com segmento extra (ex:
+    "spc_mvb") passe quando o usuário selecionou só "spc".
     """
+    tipo_set = set(tipo_partes)
     resultado = []
     for f in arquivos:
         nome = f["name"].lower()
-        if cliente not in nome:
-            continue
 
-        tem_todos_tipos = True
-        for seg in tipo_partes:
-            if not re.search(rf'(^|_){re.escape(seg)}(_|$|\.)', nome):
-                tem_todos_tipos = False
-                break
-        if not tem_todos_tipos:
+        m_cliente = re.search(rf'(^|_){re.escape(cliente)}_', nome)
+        if not m_cliente:
             continue
+        resto = nome[m_cliente.end():]
 
         if numero:
-            if not re.search(rf'_{numero}[_\.]', nome):
+            m_num = re.search(rf'_{numero}(?=[_\.])', resto)
+            if not m_num:
                 continue
+            tipo_str = resto[:m_num.start()]
+        else:
+            m_er = re.search(r'_[er](?=[_\.])', resto)
+            tipo_str = resto[:m_er.start()] if m_er else re.sub(r'\.[a-z0-9]+$', '', resto)
+
+        tipo_arquivo = set(p for p in tipo_str.split('_') if p)
+        if tipo_arquivo != tipo_set:
+            continue
 
         resultado.append(f)
     return resultado
