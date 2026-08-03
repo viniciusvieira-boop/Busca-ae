@@ -5,8 +5,9 @@ from googleapiclient.http import MediaIoBaseDownload
 import io
 import re
 import base64
+import threading
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 st.set_page_config(
     page_title="Busca aê",
@@ -199,13 +200,29 @@ PLATAFORMAS = [
     {"key": "intelipost",     "label": "Intelipost",      "sub": "Logistica"},
 ]
 
-@st.cache_resource
+_thread_local = threading.local()
+
 def get_drive_service():
-    creds = service_account.Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"],
-        scopes=["https://www.googleapis.com/auth/drive.readonly"]
-    )
-    return build("drive", "v3", credentials=creds)
+    """
+    Cria/reaproveita uma instância do serviço do Drive por THREAD.
+
+    Importante: o cliente do Google (googleapiclient, que usa httplib2 por
+    baixo dos panos) NÃO é thread-safe. A versão anterior usava
+    @st.cache_resource, o que fazia TODAS as threads compartilharem a
+    mesma instância/conexão — quando duas threads usam esse mesmo objeto
+    ao mesmo tempo (como passou a acontecer após a busca paralela),
+    a conexão SSL corrompe, gerando erros como
+    "[SSL] record layer failure". Por isso cada thread agora mantém sua
+    própria instância isolada, criada uma vez e reaproveitada só dentro
+    daquela thread.
+    """
+    if not hasattr(_thread_local, "service"):
+        creds = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"],
+            scopes=["https://www.googleapis.com/auth/drive.readonly"]
+        )
+        _thread_local.service = build("drive", "v3", credentials=creds, cache_discovery=False)
+    return _thread_local.service
 
 @st.cache_data(ttl=600, show_spinner=False)
 def listar_arquivos_cached(folder_id, nomes_filtro=None):
@@ -256,30 +273,44 @@ def buscar_recursivo(root_id, termos, max_workers=8):
     """
     Busca recursiva com cache por pasta (10 min).
 
-    Melhoria de performance: a busca em cada subpasta é uma chamada de rede
-    independente das demais (I/O), então em vez de esperar uma terminar
-    para começar a próxima (sequencial), elas são disparadas em paralelo
-    com threads. Isso troca "soma do tempo de todas as chamadas" por
-    "tempo da chamada mais lenta em cada nível" — na prática, uma busca
-    que levava ~1min com muitas subpastas deve cair bastante.
+    Melhoria de performance: em vez de percorrer pasta por pasta
+    sequencialmente (esperando cada resposta de rede antes de pedir a
+    próxima), usa um único pool de threads COMPARTILHADO para toda a
+    busca, com limite fixo de `max_workers` chamadas simultâneas no total
+    — não por nível de recursão. Isso importa porque a versão anterior
+    criava um pool novo a cada nível (8 no nível 1, até 8×8=64 no nível 2,
+    etc.), o que podia disparar rate limit da API do Drive em estruturas
+    de pastas mais largas/profundas — e o retry automático do Google em
+    caso de rate limit é bem mais lento que buscar sequencialmente. Com um
+    único pool global, o número de chamadas simultâneas nunca passa de
+    max_workers, independente do tamanho da árvore de pastas.
 
     termos pode ser string única ou lista de termos (todos exigidos, AND).
     """
-    arquivos = listar_arquivos_cached(root_id, termos)
-    subpastas = listar_subpastas_cached(root_id)
-
-    if not subpastas:
-        return arquivos
-
+    resultado = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(buscar_recursivo, sub["id"], termos, max_workers)
-            for sub in subpastas
-        ]
-        for future in as_completed(futures):
-            arquivos += future.result()
+        futures_arquivos = {executor.submit(listar_arquivos_cached, root_id, termos): root_id}
+        futures_subpastas = {executor.submit(listar_subpastas_cached, root_id): root_id}
+        pending = set(futures_arquivos) | set(futures_subpastas)
 
-    return arquivos
+        while pending:
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                if future in futures_arquivos:
+                    resultado.extend(future.result())
+                    del futures_arquivos[future]
+                elif future in futures_subpastas:
+                    subpastas = future.result()
+                    del futures_subpastas[future]
+                    for sub in subpastas:
+                        f_arq = executor.submit(listar_arquivos_cached, sub["id"], termos)
+                        f_sub = executor.submit(listar_subpastas_cached, sub["id"])
+                        futures_arquivos[f_arq] = sub["id"]
+                        futures_subpastas[f_sub] = sub["id"]
+                        pending.add(f_arq)
+                        pending.add(f_sub)
+
+    return resultado
 
 
 def extrair_partes_comercial(nome):
