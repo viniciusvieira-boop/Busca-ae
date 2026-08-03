@@ -215,8 +215,9 @@ def listar_arquivos_cached(folder_id, nomes_filtro=None):
       - None: sem filtro de nome
       - string: um único termo (`name contains 'termo'`)
       - lista de strings: todos os termos precisam aparecer no nome (AND),
-        o que permite escopar a query já no Drive (ex: cliente + número
-        da tabela comercial) em vez de trazer tudo e filtrar depois em Python.
+        o que permite escopar a query já no Drive (ex: cliente + tipo(s) +
+        número da tabela comercial) em vez de trazer tudo e filtrar depois
+        em Python.
     """
     service = get_drive_service()
     q = f"'{folder_id}' in parents and trashed=false and mimeType!='application/vnd.google-apps.folder'"
@@ -265,30 +266,67 @@ def buscar_recursivo(root_id, termos):
     return arquivos
 
 def extrair_partes_comercial(nome):
-    match = re.search(r'[Vv]2?_([A-Za-z0-9]+)_([A-Za-z0-9]+)_(\d+)', nome)
-    if match:
-        return match.group(1).lower(), match.group(3)
-    partes = re.sub(r'^[Vv]2?_', '', nome).lower().split('_')
-    if len(partes) >= 3:
-        return partes[0], partes[2]
-    return partes[0], None
+    """
+    Extrai as partes que identificam a tabela comercial a partir do nome do
+    arquivo selecionado.
 
-def filtrar_por_tabela_comercial(arquivos, cliente, numero):
+    Ex: "V2_URANO_SPC_MVB_0.xlsx" ->
+        cliente      = "urano"
+        tipo_partes  = ["spc", "mvb"]   <- identifica QUAL variante da tabela
+        numero       = "0"
+
+    Importante: um mesmo cliente pode ter várias tabelas comerciais
+    diferentes (SPC, SCC, SCI, SPI, MGC, MVB e combinações). O número final
+    (_0, _1, _2...) por si só NÃO diferencia qual delas foi selecionada —
+    por isso os segmentos do meio (tipo_partes) também precisam entrar no
+    filtro, ou tabelas diferentes com o mesmo número (ex: SPC_0 e SCC_0)
+    acabam se misturando na busca.
+    """
+    base = Path(nome).stem
+    base = re.sub(r'^[Vv]2?_', '', base)
+    partes = [p for p in base.split('_') if p]
+    if not partes:
+        return "", [], None
+
+    cliente = partes[0].lower()
+    if len(partes) >= 2 and partes[-1].isdigit():
+        numero = partes[-1]
+        tipo_partes = partes[1:-1]
+    else:
+        numero = None
+        tipo_partes = partes[1:]
+    tipo_partes = [p.lower() for p in tipo_partes]
+    return cliente, tipo_partes, numero
+
+def filtrar_por_tabela_comercial(arquivos, cliente, tipo_partes, numero):
     """
     Segunda camada de validação (aplicada em memória), mantida mesmo após
     empurrar o filtro para a query do Drive: `name contains` no Drive é uma
-    busca simples de substring, então esse regex evita falsos positivos
-    (ex: número aparecendo em outra parte do nome que não seja o sufixo
-    da tabela comercial).
+    busca simples de substring, então esse regex evita falsos positivos.
+
+    Exige, com fronteiras de "_" para evitar match parcial indevido:
+      - o cliente no nome
+      - CADA segmento de tipo_partes (ex: "spc" e "mvb") no nome
+      - o número, quando houver
     """
     resultado = []
     for f in arquivos:
         nome = f["name"].lower()
         if cliente not in nome:
             continue
+
+        tem_todos_tipos = True
+        for seg in tipo_partes:
+            if not re.search(rf'(^|_){re.escape(seg)}(_|$|\.)', nome):
+                tem_todos_tipos = False
+                break
+        if not tem_todos_tipos:
+            continue
+
         if numero:
             if not re.search(rf'_{numero}[_\.]', nome):
                 continue
+
         resultado.append(f)
     return resultado
 
@@ -380,22 +418,42 @@ for i, plat in enumerate(PLATAFORMAS):
 st.divider()
 tipo_filtro = st.radio("Tipo de tabela", ["Todos", "Economico (E_)", "Rapido (R_)"], horizontal=True)
 
+# A busca de plataforma depende de extrair cliente/tipo/número do nome do
+# arquivo comercial selecionado. Isso só funciona de forma confiável para
+# arquivos .xlsx que seguem o padrão V2_CLIENTE_TIPO_NUMERO (ex: propostas
+# em .docx não seguem esse padrão e geram termos de busca sem sentido).
+com_sel_valido = (
+    st.session_state.com_sel is not None
+    and st.session_state.com_sel["name"].lower().endswith(".xlsx")
+)
+
+if st.session_state.com_sel and not com_sel_valido:
+    st.warning(
+        "A tabela comercial selecionada não é uma planilha (.xlsx), então não é "
+        "possível identificar cliente/tipo/número para buscar as tabelas de "
+        "plataforma. Selecione um arquivo .xlsx no passo 1."
+    )
+
 buscar_plat = st.button(
     "Buscar tabelas para este cliente",
     type="primary",
     use_container_width=True,
-    disabled=not (st.session_state.com_sel and len(plats_selecionadas) > 0)
+    disabled=not (com_sel_valido and len(plats_selecionadas) > 0)
 )
 
 if buscar_plat:
     nome_com = st.session_state.com_sel["name"]
-    cliente, numero = extrair_partes_comercial(nome_com)
+    cliente, tipo_partes, numero = extrair_partes_comercial(nome_com)
 
-    # ── Melhoria: escopar a query do Drive com cliente + número da tabela
-    # comercial selecionada (em vez de buscar só por "cliente" e filtrar
-    # tudo depois em Python). Isso reduz o volume de arquivos retornado
-    # pela API do Drive já na origem, deixando a busca mais rápida.
-    termos_busca = [cliente, f"_{numero}"] if numero else [cliente]
+    # ── Melhoria: escopar a query do Drive com cliente + tipo(s) da tabela
+    # (ex: "spc", "mvb") + número, em vez de buscar só por "cliente" e
+    # filtrar tudo depois em Python. Isso reduz o volume de arquivos
+    # retornado pela API do Drive já na origem, deixando a busca mais
+    # rápida — e, principalmente, evita misturar variantes diferentes do
+    # mesmo cliente que terminam com o mesmo número (ex: SPC_0 x SCC_0).
+    termos_busca = [cliente] + tipo_partes
+    if numero:
+        termos_busca.append(f"_{numero}")
 
     st.session_state.resultados_plat = {}
     with st.spinner("Buscando tabelas de plataforma..."):
@@ -404,7 +462,7 @@ if buscar_plat:
             # Mantida como segunda camada de validação: `name contains` no
             # Drive é substring simples, então o regex aqui evita falsos
             # positivos que a query ampla possa trazer.
-            filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, numero)
+            filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, tipo_partes, numero)
 
             for plat in plats_selecionadas:
                 arquivos_plat = [
