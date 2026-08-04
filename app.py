@@ -5,6 +5,7 @@ from googleapiclient.http import MediaIoBaseDownload
 import io
 import re
 import base64
+import zipfile
 import threading
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
@@ -15,7 +16,7 @@ st.set_page_config(
     layout="wide"
 )
 
-LOGO_MANDAE_B64 = "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"
+LOGO_MANDAE_B64 = "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"
 LOGO_NUVEM_B64  = "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"
 
 st.markdown(f"""
@@ -135,6 +136,18 @@ div[data-testid="stDownloadButton"] > button:hover {{
     background: #1A2EC9 !important;
     color: white !important;
     border-color: #1A2EC9 !important;
+}}
+
+/* ── Botão "Baixar todas (.zip)" com destaque extra ── */
+div[data-testid="stDownloadButton"]:has(button[aria-describedby="dl_all_zip"]) > button,
+div[data-testid="stDownloadButton"] > button#dl_all_zip {{
+    background: #1A2EC9 !important;
+    color: white !important;
+    border: 1px solid #1A2EC9 !important;
+    font-weight: 600 !important;
+}}
+div[data-testid="stDownloadButton"]:has(button[aria-describedby="dl_all_zip"]) > button:hover {{
+    background: #1224A8 !important;
 }}
 
 /* ── Input ── */
@@ -389,6 +402,10 @@ def get_tipo(nome):
     if re.search(r'_r_|_r\d', nome, re.IGNORECASE): return "R"
     return None
 
+# Cache de 10 minutos: evita baixar o mesmo arquivo mais de uma vez do Drive
+# quando ele aparece tanto no botão de download individual quanto no zip
+# consolidado (ver Card 3, abaixo).
+@st.cache_data(ttl=600, show_spinner=False)
 def baixar_arquivo(file_id):
     service = get_drive_service()
     request = service.files().get_media(fileId=file_id)
@@ -538,7 +555,38 @@ if buscar_plat:
     st.session_state.plat_sel = {}
 
 if st.session_state.resultados_plat:
-    st.markdown("**Selecione as tabelas de plataforma:**")
+    # Monta a lista de arquivos visíveis considerando o filtro de tipo (Todos
+    # / Economico / Rapido) atual, para o botão "selecionar todas" agir
+    # exatamente sobre o que está na tela, e não sobre tudo que foi
+    # encontrado na busca.
+    arquivos_visiveis = []
+    for key, dados in st.session_state.resultados_plat.items():
+        files = dados["files"]
+        if tipo_filtro == "Economico (E_)":
+            files = [f for f in files if get_tipo(f["name"]) == "E"]
+        elif tipo_filtro == "Rapido (R_)":
+            files = [f for f in files if get_tipo(f["name"]) == "R"]
+        arquivos_visiveis.extend(files)
+
+    col_titulo, col_sel_all = st.columns([3, 1])
+    with col_titulo:
+        st.markdown("**Selecione as tabelas de plataforma:**")
+
+    if arquivos_visiveis:
+        chaves_checkbox = [f"plat_{f['id']}" for f in arquivos_visiveis]
+        todas_marcadas = all(st.session_state.get(k, False) for k in chaves_checkbox)
+        with col_sel_all:
+            label_btn = "Desmarcar todas" if todas_marcadas else "Selecionar todas"
+            if st.button(label_btn, use_container_width=True, key="btn_selecionar_todas"):
+                # Sobrescreve o estado de cada checkbox antes do rerun. Como
+                # os checkboxes usam essas mesmas chaves (key=key_sel, abaixo),
+                # eles já nascem marcados/desmarcados na próxima renderização,
+                # e o loop que popula plat_sel roda normalmente sobre o novo
+                # estado.
+                for k in chaves_checkbox:
+                    st.session_state[k] = not todas_marcadas
+                st.rerun()
+
     for key, dados in st.session_state.resultados_plat.items():
         plat = dados["plat"]
         files = dados["files"]
@@ -575,7 +623,40 @@ todos_plat = [f for files in st.session_state.plat_sel.values() for f in files]
 if todos_plat:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<div class="card-title">Downloads</div>', unsafe_allow_html=True)
-    st.markdown("**Tabelas de Plataforma selecionadas:**")
+
+    col_titulo, col_baixar_all = st.columns([3, 1])
+    with col_titulo:
+        st.markdown("**Tabelas de Plataforma selecionadas:**")
+
+    with col_baixar_all:
+        # Monta um .zip único com todos os arquivos selecionados. Streamlit
+        # não permite disparar vários st.download_button de uma vez com um
+        # único clique (e navegadores bloqueiam múltiplos downloads
+        # simultâneos como se fosse pop-up spam), então o .zip é a forma
+        # confiável de entregar "baixar todas" em um clique só.
+        with st.spinner("Preparando .zip..."):
+            zip_buffer = io.BytesIO()
+            erros_zip = []
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                for f in todos_plat:
+                    try:
+                        zf.writestr(f["name"], baixar_arquivo(f["id"]))
+                    except Exception as e:
+                        erros_zip.append((f["name"], e))
+            zip_buffer.seek(0)
+
+        st.download_button(
+            label="Baixar todas (.zip)",
+            data=zip_buffer,
+            file_name="tabelas_plataforma.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="dl_all_zip"
+        )
+
+    for nome_erro, erro in erros_zip if todos_plat else []:
+        st.error(f"Erro ao baixar {nome_erro} para o .zip: {erro}")
+
     for f in todos_plat:
         tipo = get_tipo(f["name"])
         label = "Economico" if tipo == "E" else "Rapido" if tipo == "R" else "Plataforma"
@@ -591,3 +672,5 @@ if todos_plat:
         except Exception as e:
             st.error(f"Erro ao baixar {f['name']}: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
+       
+        
