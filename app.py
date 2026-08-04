@@ -1,4 +1,5 @@
-import streamlit as st
+
+    import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
@@ -139,14 +140,14 @@ div[data-testid="stDownloadButton"] > button:hover {{
 }}
 
 /* ── Botão "Baixar todas (.zip)" com destaque extra ── */
-div[data-testid="stDownloadButton"]:has(button[aria-describedby="dl_all_zip"]) > button,
-div[data-testid="stDownloadButton"] > button#dl_all_zip {{
+div[data-testid="stDownloadButton"]:has(button[aria-describedby*="dl_all_zip"]) > button,
+div[data-testid="stDownloadButton"] > button[id*="dl_all_zip"] {{
     background: #1A2EC9 !important;
     color: white !important;
     border: 1px solid #1A2EC9 !important;
     font-weight: 600 !important;
 }}
-div[data-testid="stDownloadButton"]:has(button[aria-describedby="dl_all_zip"]) > button:hover {{
+div[data-testid="stDownloadButton"]:has(button[aria-describedby*="dl_all_zip"]) > button:hover {{
     background: #1224A8 !important;
 }}
 
@@ -193,6 +194,14 @@ header[data-testid="stHeader"] {{background: transparent;}}
 # ✅ FOLDER_COM atualizado para o novo Drive
 FOLDER_COM  = "1I_G69usGZBSkJCIbJtNbYw_h10Qct703"
 FOLDER_PLAT = "1skvokx1uRKgdgiRh3qUbd8qfUiatKpFA"
+
+# Pastas auxiliares usadas no "Modo Black Friday" (clientes com prazo
+# adicional, tabelas guardadas em pastas separadas na mesma conta de
+# serviço). Troque os IDs abaixo pelos IDs reais das pastas assim que
+# tiver — pode pegar direto da URL da pasta no Google Drive
+# (drive.google.com/drive/folders/<ID_DA_PASTA>).
+FOLDER_COM_BF  = "COLOQUE_AQUI_O_ID_DA_PASTA_COMERCIAL_BLACK_FRIDAY"
+FOLDER_PLAT_BF = "COLOQUE_AQUI_O_ID_DA_PASTA_PLATAFORMA_BLACK_FRIDAY"
 
 PLATAFORMAS = [
     {"key": "amazon",         "label": "Amazon",          "sub": "Marketplace"},
@@ -417,290 +426,319 @@ def baixar_arquivo(file_id):
     buffer.seek(0)
     return buffer.read()
 
-# ── Session state ──────────────────────────────────────────────────────────
+# ── Configuração e funções compartilhadas pelas abas ────────────────────────
 
-if "com_sel" not in st.session_state:
-    st.session_state.com_sel = None
-if "plat_sel" not in st.session_state:
-    st.session_state.plat_sel = {}
-if "resultados_com" not in st.session_state:
-    st.session_state.resultados_com = []
-if "resultados_plat" not in st.session_state:
-    st.session_state.resultados_plat = {}
 
-# ── Card 1: Busca comercial ────────────────────────────────────────────────
+def render_busca(prefix, folder_com, folder_plat):
+    """
+    Renderiza o fluxo completo (Card 1: comercial, Card 2: plataformas,
+    Card 3: downloads) para um par de pastas do Drive.
 
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.markdown('<div class="card-title"><span class="step-num">1</span> Buscar tabela comercial</div>', unsafe_allow_html=True)
+    `prefix` isola tanto o session_state quanto as `key` dos widgets entre
+    as abas (ex: "normal" e "bf"), para que a aba "Tabelas Black Friday"
+    tenha sua própria busca/seleção, totalmente independente da aba
+    "Tabelas" — sem isso, os widgets colidiriam (mesma key duas vezes na
+    mesma execução) e os resultados de uma aba vazariam para a outra.
+    """
+    k_com_sel = f"{prefix}_com_sel"
+    k_plat_sel = f"{prefix}_plat_sel"
+    k_resultados_com = f"{prefix}_resultados_com"
+    k_resultados_plat = f"{prefix}_resultados_plat"
 
-col1, col2 = st.columns([4, 1])
-with col1:
-    termo_com = st.text_input("Buscar cliente", placeholder="Ex: MERCURIO, LUA, CALISTO...", label_visibility="collapsed", key="input_com")
-with col2:
-    buscar_com = st.button("Buscar", type="primary", use_container_width=True)
+    if k_com_sel not in st.session_state:
+        st.session_state[k_com_sel] = None
+    if k_plat_sel not in st.session_state:
+        st.session_state[k_plat_sel] = {}
+    if k_resultados_com not in st.session_state:
+        st.session_state[k_resultados_com] = []
+    if k_resultados_plat not in st.session_state:
+        st.session_state[k_resultados_plat] = {}
 
-if buscar_com and termo_com:
-    with st.spinner(f'Buscando "{termo_com}" no Drive...'):
-        try:
-            st.session_state.resultados_com = buscar_recursivo(FOLDER_COM, termo_com)
-            st.session_state.com_sel = None
-        except Exception as e:
-            st.error(f"Erro: {e}")
+    # ── Card 1: Busca comercial ──────────────────────────────────────────
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="card-title"><span class="step-num">1</span> Buscar tabela comercial</div>', unsafe_allow_html=True)
 
-if st.session_state.resultados_com:
-    st.markdown("**Selecione a tabela comercial:**")
-    for f in st.session_state.resultados_com:
-        is_sel = st.session_state.com_sel and st.session_state.com_sel["id"] == f["id"]
-        label = f"{'✅' if is_sel else '📄'} {f['name']}"
-        if st.button(label, key=f"com_{f['id']}", use_container_width=True):
-            st.session_state.com_sel = f
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        termo_com = st.text_input(
+            "Buscar cliente", placeholder="Ex: MERCURIO, LUA, CALISTO...",
+            label_visibility="collapsed", key=f"{prefix}_input_com"
+        )
+    with col2:
+        buscar_com = st.button("Buscar", type="primary", use_container_width=True, key=f"{prefix}_btn_buscar_com")
 
-if st.session_state.com_sel:
-    col_info, col_dl = st.columns([3, 1])
-    with col_info:
-        st.success(f"Selecionado: {st.session_state.com_sel['name']}")
-    with col_dl:
-        if st.button("Baixar tabela comercial", use_container_width=True):
-            with st.spinner("Baixando..."):
-                dados = baixar_arquivo(st.session_state.com_sel["id"])
-                st.download_button(
-                    label="Clique para salvar",
-                    data=dados,
-                    file_name=st.session_state.com_sel["name"],
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="dl_com"
-                )
+    if buscar_com and termo_com:
+        with st.spinner(f'Buscando "{termo_com}" no Drive...'):
+            try:
+                st.session_state[k_resultados_com] = buscar_recursivo(folder_com, termo_com)
+                st.session_state[k_com_sel] = None
+            except Exception as e:
+                st.error(f"Erro: {e}")
 
-st.markdown('</div>', unsafe_allow_html=True)
+    if st.session_state[k_resultados_com]:
+        st.markdown("**Selecione a tabela comercial:**")
+        for f in st.session_state[k_resultados_com]:
+            is_sel = st.session_state[k_com_sel] and st.session_state[k_com_sel]["id"] == f["id"]
+            label = f"{'✅' if is_sel else '📄'} {f['name']}"
+            if st.button(label, key=f"{prefix}_com_{f['id']}", use_container_width=True):
+                st.session_state[k_com_sel] = f
 
-# ── Card 2: Plataformas ────────────────────────────────────────────────────
+    if st.session_state[k_com_sel]:
+        col_info, col_dl = st.columns([3, 1])
+        with col_info:
+            st.success(f"Selecionado: {st.session_state[k_com_sel]['name']}")
+        with col_dl:
+            if st.button("Baixar tabela comercial", use_container_width=True, key=f"{prefix}_btn_baixar_com"):
+                with st.spinner("Baixando..."):
+                    dados = baixar_arquivo(st.session_state[k_com_sel]["id"])
+                    st.download_button(
+                        label="Clique para salvar",
+                        data=dados,
+                        file_name=st.session_state[k_com_sel]["name"],
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key=f"{prefix}_dl_com"
+                    )
 
-st.markdown('<div class="card">', unsafe_allow_html=True)
-st.markdown('<div class="card-title"><span class="step-num">2</span> Selecione as plataformas</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
-cols = st.columns(4)
-plats_selecionadas = []
-for i, plat in enumerate(PLATAFORMAS):
-    with cols[i % 4]:
-        checked = st.checkbox(f"{plat['label']} {plat['sub']}", key=f"chip_{plat['key']}")
-        if checked:
-            plats_selecionadas.append(plat)
+    # ── Card 2: Plataformas ──────────────────────────────────────────────
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    st.markdown('<div class="card-title"><span class="step-num">2</span> Selecione as plataformas</div>', unsafe_allow_html=True)
 
-st.divider()
-tipo_filtro = st.radio("Tipo de tabela", ["Todos", "Economico (E_)", "Rapido (R_)"], horizontal=True)
+    cols = st.columns(4)
+    plats_selecionadas = []
+    for i, plat in enumerate(PLATAFORMAS):
+        with cols[i % 4]:
+            checked = st.checkbox(f"{plat['label']} {plat['sub']}", key=f"{prefix}_chip_{plat['key']}")
+            if checked:
+                plats_selecionadas.append(plat)
 
-# A busca de plataforma depende de extrair cliente/tipo/número do nome do
-# arquivo comercial selecionado. Isso só funciona de forma confiável para
-# arquivos .xlsx que seguem o padrão V2_CLIENTE_TIPO_NUMERO (ex: propostas
-# em .docx não seguem esse padrão e geram termos de busca sem sentido).
-com_sel_valido = (
-    st.session_state.com_sel is not None
-    and st.session_state.com_sel["name"].lower().endswith(".xlsx")
-)
-
-if st.session_state.com_sel and not com_sel_valido:
-    st.warning(
-        "A tabela comercial selecionada não é uma planilha (.xlsx), então não é "
-        "possível identificar cliente/tipo/número para buscar as tabelas de "
-        "plataforma. Selecione um arquivo .xlsx no passo 1."
+    st.divider()
+    tipo_filtro = st.radio(
+        "Tipo de tabela", ["Todos", "Economico (E_)", "Rapido (R_)"],
+        horizontal=True, key=f"{prefix}_tipo_filtro"
     )
 
-buscar_plat = st.button(
-    "Buscar tabelas para este cliente",
-    type="primary",
-    use_container_width=True,
-    disabled=not (com_sel_valido and len(plats_selecionadas) > 0)
-)
+    # A busca de plataforma depende de extrair cliente/tipo/número do nome do
+    # arquivo comercial selecionado. Isso só funciona de forma confiável para
+    # arquivos .xlsx que seguem o padrão V2_CLIENTE_TIPO_NUMERO (ex: propostas
+    # em .docx não seguem esse padrão e geram termos de busca sem sentido).
+    com_sel_valido = (
+        st.session_state[k_com_sel] is not None
+        and st.session_state[k_com_sel]["name"].lower().endswith(".xlsx")
+    )
 
-if buscar_plat:
-    nome_com = st.session_state.com_sel["name"]
-    cliente, tipo_partes, numero = extrair_partes_comercial(nome_com)
-
-    # Escopa a query do Drive com cliente + tipo(s) da tabela (ex: "spc",
-    # "mvb") + número, em vez de trazer tudo e filtrar depois. Reduz o
-    # volume retornado pela API do Drive já na origem. A busca em cada
-    # subpasta acontece em paralelo (ver buscar_recursivo), o que também
-    # reduz bastante o tempo total em relação a percorrer sequencialmente.
-    termos_busca = [cliente] + tipo_partes
-    if numero:
-        termos_busca.append(f"_{numero}")
-
-    st.session_state.resultados_plat = {}
-    with st.spinner("Buscando tabelas de plataforma..."):
-        try:
-            todos_arquivos = buscar_recursivo(FOLDER_PLAT, termos_busca)
-            # Filtro fino: exige cliente + o conjunto exato de tipo(s)
-            # (ex: "spc" ou "spc"+"mvb") + número, evitando misturar
-            # variantes diferentes do mesmo cliente (ex: SPC_0 x SCC_0 x
-            # SPC_MVB_0). Necessário porque `name contains` no Drive é
-            # substring simples e a query acima só reduz o volume, não
-            # garante exatidão.
-            filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, tipo_partes, numero)
-
-            for plat in plats_selecionadas:
-                arquivos_plat = [
-                    f for f in filtrados
-                    if plat["key"] in f["name"].lower() or plat["label"].lower() in f["name"].lower()
-                ]
-                if arquivos_plat:
-                    st.session_state.resultados_plat[plat["key"]] = {"plat": plat, "files": arquivos_plat}
-
-            if not st.session_state.resultados_plat and filtrados:
-                st.session_state.resultados_plat["todos"] = {
-                    "plat": {"label": "Resultados", "key": "todos"},
-                    "files": filtrados
-                }
-        except Exception as e:
-            st.error(f"Erro: {e}")
-    st.session_state.plat_sel = {}
-
-if st.session_state.resultados_plat:
-    # Monta a lista de arquivos visíveis considerando o filtro de tipo (Todos
-    # / Economico / Rapido) atual, para o botão "selecionar todas" agir
-    # exatamente sobre o que está na tela, e não sobre tudo que foi
-    # encontrado na busca.
-    arquivos_visiveis = []
-    for key, dados in st.session_state.resultados_plat.items():
-        files = dados["files"]
-        if tipo_filtro == "Economico (E_)":
-            files = [f for f in files if get_tipo(f["name"]) == "E"]
-        elif tipo_filtro == "Rapido (R_)":
-            files = [f for f in files if get_tipo(f["name"]) == "R"]
-        arquivos_visiveis.extend(files)
-
-    col_titulo, col_sel_all = st.columns([3, 1])
-    with col_titulo:
-        st.markdown("**Selecione as tabelas de plataforma:**")
-
-    if arquivos_visiveis:
-        chaves_checkbox = [f"plat_{f['id']}" for f in arquivos_visiveis]
-        todas_marcadas = all(st.session_state.get(k, False) for k in chaves_checkbox)
-        with col_sel_all:
-            label_btn = "Desmarcar todas" if todas_marcadas else "Selecionar todas"
-            if st.button(label_btn, use_container_width=True, key="btn_selecionar_todas"):
-                # Sobrescreve o estado de cada checkbox antes do rerun. Como
-                # os checkboxes usam essas mesmas chaves (key=key_sel, abaixo),
-                # eles já nascem marcados/desmarcados na próxima renderização,
-                # e o loop que popula plat_sel roda normalmente sobre o novo
-                # estado.
-                for k in chaves_checkbox:
-                    st.session_state[k] = not todas_marcadas
-                st.rerun()
-
-    for key, dados in st.session_state.resultados_plat.items():
-        plat = dados["plat"]
-        files = dados["files"]
-
-        if tipo_filtro == "Economico (E_)":
-            files = [f for f in files if get_tipo(f["name"]) == "E"]
-        elif tipo_filtro == "Rapido (R_)":
-            files = [f for f in files if get_tipo(f["name"]) == "R"]
-
-        if not files:
-            continue
-
-        st.markdown(f"**{plat['label']}** - {len(files)} arquivo(s)")
-        for f in files:
-            tipo = get_tipo(f["name"])
-            tipo_badge = "E" if tipo == "E" else "R" if tipo == "R" else ""
-            key_sel = f"plat_{f['id']}"
-            checked = st.checkbox(f"{tipo_badge} {f['name']}", key=key_sel)
-            if checked:
-                if key not in st.session_state.plat_sel:
-                    st.session_state.plat_sel[key] = []
-                if not any(x["id"] == f["id"] for x in st.session_state.plat_sel[key]):
-                    st.session_state.plat_sel[key].append(f)
-            else:
-                if key in st.session_state.plat_sel:
-                    st.session_state.plat_sel[key] = [x for x in st.session_state.plat_sel[key] if x["id"] != f["id"]]
-
-st.markdown('</div>', unsafe_allow_html=True)
-
-# ── Card 3: Downloads ──────────────────────────────────────────────────────
-
-todos_plat = [f for files in st.session_state.plat_sel.values() for f in files]
-
-if todos_plat:
-    st.markdown('<div class="card">', unsafe_allow_html=True)
-    st.markdown('<div class="card-title">Downloads</div>', unsafe_allow_html=True)
-
-    col_titulo, col_baixar_all = st.columns([3, 1])
-    with col_titulo:
-        st.markdown("**Tabelas de Plataforma selecionadas:**")
-
-    with col_baixar_all:
-        # Monta um .zip único com todos os arquivos selecionados. Streamlit
-        # não permite disparar vários st.download_button de uma vez com um
-        # único clique (e navegadores bloqueiam múltiplos downloads
-        # simultâneos como se fosse pop-up spam), então o .zip é a forma
-        # confiável de entregar "baixar todas" em um clique só.
-        #
-        # Cada plataforma vira uma subpasta dentro do zip (ex:
-        # "Amazon/arquivo.xlsx", "Via Varejo/arquivo.xlsx"), usando o label
-        # já guardado em resultados_plat para essa chave. Caracteres que não
-        # são válidos em nome de pasta são trocados por "_".
-        #
-        # Duas otimizações de velocidade:
-        # 1. Os downloads do Drive rodam em PARALELO (ThreadPoolExecutor),
-        #    igual à busca — antes eram sequenciais, então o tempo total
-        #    era a soma de todos os downloads em vez do maior deles.
-        # 2. ZIP_STORED em vez de ZIP_DEFLATED: um .xlsx já é internamente
-        #    um arquivo zip comprimido, então recomprimir gasta CPU sem
-        #    reduzir o tamanho final — ZIP_STORED só empacota, sem comprimir.
-        with st.spinner("Preparando .zip..."):
-            tarefas = []
-            for key, files in st.session_state.plat_sel.items():
-                dados_plat = st.session_state.resultados_plat.get(key)
-                label_pasta = dados_plat["plat"]["label"] if dados_plat else key
-                label_pasta = re.sub(r'[\\/:*?"<>|]', "_", label_pasta)
-                for f in files:
-                    tarefas.append((label_pasta, f))
-
-            erros_zip = []
-            conteudo_baixado = []
-            with ThreadPoolExecutor(max_workers=8) as executor:
-                futures = {
-                    executor.submit(baixar_arquivo, f["id"]): (label_pasta, f)
-                    for label_pasta, f in tarefas
-                }
-                for future in as_completed(futures):
-                    label_pasta, f = futures[future]
-                    try:
-                        conteudo_baixado.append((label_pasta, f["name"], future.result()))
-                    except Exception as e:
-                        erros_zip.append((f["name"], e))
-
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_STORED) as zf:
-                for label_pasta, nome, dados in conteudo_baixado:
-                    zf.writestr(f"{label_pasta}/{nome}", dados)
-            zip_buffer.seek(0)
-
-        st.download_button(
-            label="Baixar todas (.zip)",
-            data=zip_buffer,
-            file_name="tabelas_plataforma.zip",
-            mime="application/zip",
-            use_container_width=True,
-            key="dl_all_zip"
+    if st.session_state[k_com_sel] and not com_sel_valido:
+        st.warning(
+            "A tabela comercial selecionada não é uma planilha (.xlsx), então não é "
+            "possível identificar cliente/tipo/número para buscar as tabelas de "
+            "plataforma. Selecione um arquivo .xlsx no passo 1."
         )
 
-    for nome_erro, erro in erros_zip if todos_plat else []:
-        st.error(f"Erro ao baixar {nome_erro} para o .zip: {erro}")
+    buscar_plat = st.button(
+        "Buscar tabelas para este cliente",
+        type="primary",
+        use_container_width=True,
+        disabled=not (com_sel_valido and len(plats_selecionadas) > 0),
+        key=f"{prefix}_btn_buscar_plat"
+    )
 
-    # Sem botões de download individuais: o navegador não permite escolher
-    # subpasta ao baixar um arquivo solto, então eles sempre cairiam
-    # misturados na pasta Downloads. Só a lista abaixo (informativa) mais o
-    # botão "Baixar todas (.zip)" acima, que já entrega tudo organizado em
-    # subpastas por plataforma.
-    for key, files in st.session_state.plat_sel.items():
-        if not files:
-            continue
-        dados_plat = st.session_state.resultados_plat.get(key)
-        label_plat = dados_plat["plat"]["label"] if dados_plat else key
-        st.markdown(f"**{label_plat}**")
-        for f in files:
-            tipo = get_tipo(f["name"])
-            label = "Economico" if tipo == "E" else "Rapido" if tipo == "R" else "Plataforma"
-            st.caption(f"{label} - {f['name']}")
+    if buscar_plat:
+        nome_com = st.session_state[k_com_sel]["name"]
+        cliente, tipo_partes, numero = extrair_partes_comercial(nome_com)
+
+        # Escopa a query do Drive com cliente + tipo(s) da tabela (ex: "spc",
+        # "mvb") + número, em vez de trazer tudo e filtrar depois. Reduz o
+        # volume retornado pela API do Drive já na origem. A busca em cada
+        # subpasta acontece em paralelo (ver buscar_recursivo), o que também
+        # reduz bastante o tempo total em relação a percorrer sequencialmente.
+        termos_busca = [cliente] + tipo_partes
+        if numero:
+            termos_busca.append(f"_{numero}")
+
+        st.session_state[k_resultados_plat] = {}
+        with st.spinner("Buscando tabelas de plataforma..."):
+            try:
+                todos_arquivos = buscar_recursivo(folder_plat, termos_busca)
+                # Filtro fino: exige cliente + o conjunto exato de tipo(s)
+                # (ex: "spc" ou "spc"+"mvb") + número, evitando misturar
+                # variantes diferentes do mesmo cliente (ex: SPC_0 x SCC_0 x
+                # SPC_MVB_0). Necessário porque `name contains` no Drive é
+                # substring simples e a query acima só reduz o volume, não
+                # garante exatidão.
+                filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, tipo_partes, numero)
+
+                for plat in plats_selecionadas:
+                    arquivos_plat = [
+                        f for f in filtrados
+                        if plat["key"] in f["name"].lower() or plat["label"].lower() in f["name"].lower()
+                    ]
+                    if arquivos_plat:
+                        st.session_state[k_resultados_plat][plat["key"]] = {"plat": plat, "files": arquivos_plat}
+
+                if not st.session_state[k_resultados_plat] and filtrados:
+                    st.session_state[k_resultados_plat]["todos"] = {
+                        "plat": {"label": "Resultados", "key": "todos"},
+                        "files": filtrados
+                    }
+            except Exception as e:
+                st.error(f"Erro: {e}")
+        st.session_state[k_plat_sel] = {}
+
+    if st.session_state[k_resultados_plat]:
+        # Monta a lista de arquivos visíveis considerando o filtro de tipo
+        # (Todos / Economico / Rapido) atual, para o botão "selecionar
+        # todas" agir exatamente sobre o que está na tela.
+        arquivos_visiveis = []
+        for key, dados in st.session_state[k_resultados_plat].items():
+            files = dados["files"]
+            if tipo_filtro == "Economico (E_)":
+                files = [f for f in files if get_tipo(f["name"]) == "E"]
+            elif tipo_filtro == "Rapido (R_)":
+                files = [f for f in files if get_tipo(f["name"]) == "R"]
+            arquivos_visiveis.extend(files)
+
+        col_titulo, col_sel_all = st.columns([3, 1])
+        with col_titulo:
+            st.markdown("**Selecione as tabelas de plataforma:**")
+
+        if arquivos_visiveis:
+            chaves_checkbox = [f"{prefix}_plat_{f['id']}" for f in arquivos_visiveis]
+            todas_marcadas = all(st.session_state.get(k, False) for k in chaves_checkbox)
+            with col_sel_all:
+                label_btn = "Desmarcar todas" if todas_marcadas else "Selecionar todas"
+                if st.button(label_btn, use_container_width=True, key=f"{prefix}_btn_selecionar_todas"):
+                    for k in chaves_checkbox:
+                        st.session_state[k] = not todas_marcadas
+                    st.rerun()
+
+        for key, dados in st.session_state[k_resultados_plat].items():
+            plat = dados["plat"]
+            files = dados["files"]
+
+            if tipo_filtro == "Economico (E_)":
+                files = [f for f in files if get_tipo(f["name"]) == "E"]
+            elif tipo_filtro == "Rapido (R_)":
+                files = [f for f in files if get_tipo(f["name"]) == "R"]
+
+            if not files:
+                continue
+
+            st.markdown(f"**{plat['label']}** - {len(files)} arquivo(s)")
+            for f in files:
+                tipo = get_tipo(f["name"])
+                tipo_badge = "E" if tipo == "E" else "R" if tipo == "R" else ""
+                key_sel = f"{prefix}_plat_{f['id']}"
+                checked = st.checkbox(f"{tipo_badge} {f['name']}", key=key_sel)
+                if checked:
+                    if key not in st.session_state[k_plat_sel]:
+                        st.session_state[k_plat_sel][key] = []
+                    if not any(x["id"] == f["id"] for x in st.session_state[k_plat_sel][key]):
+                        st.session_state[k_plat_sel][key].append(f)
+                else:
+                    if key in st.session_state[k_plat_sel]:
+                        st.session_state[k_plat_sel][key] = [x for x in st.session_state[k_plat_sel][key] if x["id"] != f["id"]]
+
     st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── Card 3: Downloads ────────────────────────────────────────────────
+    todos_plat = [f for files in st.session_state[k_plat_sel].values() for f in files]
+
+    if todos_plat:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.markdown('<div class="card-title">Downloads</div>', unsafe_allow_html=True)
+
+        col_titulo, col_baixar_all = st.columns([3, 1])
+        with col_titulo:
+            st.markdown("**Tabelas de Plataforma selecionadas:**")
+
+        with col_baixar_all:
+            # Monta um .zip único, com downloads em paralelo e ZIP_STORED
+            # (sem recompressão, já que .xlsx já é comprimido internamente).
+            # Cada plataforma vira uma subpasta dentro do zip.
+            with st.spinner("Preparando .zip..."):
+                tarefas = []
+                for key, files in st.session_state[k_plat_sel].items():
+                    dados_plat = st.session_state[k_resultados_plat].get(key)
+                    label_pasta = dados_plat["plat"]["label"] if dados_plat else key
+                    label_pasta = re.sub(r'[\\/:*?"<>|]', "_", label_pasta)
+                    for f in files:
+                        tarefas.append((label_pasta, f))
+
+                erros_zip = []
+                conteudo_baixado = []
+                with ThreadPoolExecutor(max_workers=8) as executor:
+                    futures = {
+                        executor.submit(baixar_arquivo, f["id"]): (label_pasta, f)
+                        for label_pasta, f in tarefas
+                    }
+                    for future in as_completed(futures):
+                        label_pasta, f = futures[future]
+                        try:
+                            conteudo_baixado.append((label_pasta, f["name"], future.result()))
+                        except Exception as e:
+                            erros_zip.append((f["name"], e))
+
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_STORED) as zf:
+                    for label_pasta, nome, dados in conteudo_baixado:
+                        zf.writestr(f"{label_pasta}/{nome}", dados)
+                zip_buffer.seek(0)
+
+            st.download_button(
+                label="Baixar todas (.zip)",
+                data=zip_buffer,
+                file_name="tabelas_plataforma.zip",
+                mime="application/zip",
+                use_container_width=True,
+                key=f"{prefix}_dl_all_zip"
+            )
+
+        for nome_erro, erro in erros_zip if todos_plat else []:
+            st.error(f"Erro ao baixar {nome_erro} para o .zip: {erro}")
+
+        # Sem botões de download individuais: o navegador não permite
+        # escolher subpasta ao baixar um arquivo solto. Só a lista abaixo
+        # (informativa) mais o "Baixar todas (.zip)" acima, que já entrega
+        # tudo organizado em subpastas por plataforma.
+        for key, files in st.session_state[k_plat_sel].items():
+            if not files:
+                continue
+            dados_plat = st.session_state[k_resultados_plat].get(key)
+            label_plat = dados_plat["plat"]["label"] if dados_plat else key
+            st.markdown(f"**{label_plat}**")
+            for f in files:
+                tipo = get_tipo(f["name"])
+                label = "Economico" if tipo == "E" else "Rapido" if tipo == "R" else "Plataforma"
+                st.caption(f"{label} - {f['name']}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ── Navegação por abas ───────────────────────────────────────────────────────
+
+tab_normal, tab_bf = st.tabs(["Tabelas", "Tabelas Black Friday"])
+
+with tab_normal:
+    render_busca("normal", FOLDER_COM, FOLDER_PLAT)
+
+with tab_bf:
+    st.caption(
+        "Tabelas de clientes com prazo adicional, buscadas em pastas separadas "
+        "no Drive. Mesmo fluxo de busca de sempre, aplicado a essas pastas."
+    )
+
+    pastas_bf_configuradas = (
+        not FOLDER_COM_BF.startswith("COLOQUE_AQUI")
+        and not FOLDER_PLAT_BF.startswith("COLOQUE_AQUI")
+    )
+
+    if not pastas_bf_configuradas:
+        st.warning(
+            "As pastas da Black Friday ainda não foram configuradas. Assim que "
+            "tiver os IDs das pastas comercial e de plataforma no Drive, "
+            "substitua `FOLDER_COM_BF` e `FOLDER_PLAT_BF` no topo do arquivo "
+            "(pode pegar o ID direto da URL da pasta: "
+            "drive.google.com/drive/folders/**<ID>**)."
+        )
+    else:
+        render_busca("bf", FOLDER_COM_BF, FOLDER_PLAT_BF)
