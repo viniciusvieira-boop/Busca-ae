@@ -58,12 +58,6 @@ html, body, [class*="css"] {{
     width: auto;
     object-fit: contain;
 }}
-.logo-divider {{
-    width: 1px;
-    height: 24px;
-    background: rgba(255,255,255,0.25);
-}}
-
 /* ── Cards ── */
 .card {{
     background: white;
@@ -179,8 +173,6 @@ header[data-testid="stHeader"] {{background: transparent;}}
     <p>Compartilhador de Tabelas — Comercial &amp; Plataforma</p>
   </div>
   <div class="app-header-logos">
-    <img src="data:image/png;base64,{LOGO_MANDAE_B64}" alt="Mandaê" />
-    <div class="logo-divider"></div>
     <img src="data:image/png;base64,{LOGO_NUVEM_B64}" alt="Nuvemshop" />
   </div>
 </div>
