@@ -8,7 +8,7 @@ import base64
 import zipfile
 import threading
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED, as_completed
 
 st.set_page_config(
     page_title="Busca aê",
@@ -639,19 +639,41 @@ if todos_plat:
         # "Amazon/arquivo.xlsx", "Via Varejo/arquivo.xlsx"), usando o label
         # já guardado em resultados_plat para essa chave. Caracteres que não
         # são válidos em nome de pasta são trocados por "_".
+        #
+        # Duas otimizações de velocidade:
+        # 1. Os downloads do Drive rodam em PARALELO (ThreadPoolExecutor),
+        #    igual à busca — antes eram sequenciais, então o tempo total
+        #    era a soma de todos os downloads em vez do maior deles.
+        # 2. ZIP_STORED em vez de ZIP_DEFLATED: um .xlsx já é internamente
+        #    um arquivo zip comprimido, então recomprimir gasta CPU sem
+        #    reduzir o tamanho final — ZIP_STORED só empacota, sem comprimir.
         with st.spinner("Preparando .zip..."):
-            zip_buffer = io.BytesIO()
+            tarefas = []
+            for key, files in st.session_state.plat_sel.items():
+                dados_plat = st.session_state.resultados_plat.get(key)
+                label_pasta = dados_plat["plat"]["label"] if dados_plat else key
+                label_pasta = re.sub(r'[\\/:*?"<>|]', "_", label_pasta)
+                for f in files:
+                    tarefas.append((label_pasta, f))
+
             erros_zip = []
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                for key, files in st.session_state.plat_sel.items():
-                    dados_plat = st.session_state.resultados_plat.get(key)
-                    label_pasta = dados_plat["plat"]["label"] if dados_plat else key
-                    label_pasta = re.sub(r'[\\/:*?"<>|]', "_", label_pasta)
-                    for f in files:
-                        try:
-                            zf.writestr(f"{label_pasta}/{f['name']}", baixar_arquivo(f["id"]))
-                        except Exception as e:
-                            erros_zip.append((f["name"], e))
+            conteudo_baixado = []
+            with ThreadPoolExecutor(max_workers=8) as executor:
+                futures = {
+                    executor.submit(baixar_arquivo, f["id"]): (label_pasta, f)
+                    for label_pasta, f in tarefas
+                }
+                for future in as_completed(futures):
+                    label_pasta, f = futures[future]
+                    try:
+                        conteudo_baixado.append((label_pasta, f["name"], future.result()))
+                    except Exception as e:
+                        erros_zip.append((f["name"], e))
+
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_STORED) as zf:
+                for label_pasta, nome, dados in conteudo_baixado:
+                    zf.writestr(f"{label_pasta}/{nome}", dados)
             zip_buffer.seek(0)
 
         st.download_button(
