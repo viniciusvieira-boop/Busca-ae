@@ -634,15 +634,24 @@ if todos_plat:
         # único clique (e navegadores bloqueiam múltiplos downloads
         # simultâneos como se fosse pop-up spam), então o .zip é a forma
         # confiável de entregar "baixar todas" em um clique só.
+        #
+        # Cada plataforma vira uma subpasta dentro do zip (ex:
+        # "Amazon/arquivo.xlsx", "Via Varejo/arquivo.xlsx"), usando o label
+        # já guardado em resultados_plat para essa chave. Caracteres que não
+        # são válidos em nome de pasta são trocados por "_".
         with st.spinner("Preparando .zip..."):
             zip_buffer = io.BytesIO()
             erros_zip = []
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                for f in todos_plat:
-                    try:
-                        zf.writestr(f["name"], baixar_arquivo(f["id"]))
-                    except Exception as e:
-                        erros_zip.append((f["name"], e))
+                for key, files in st.session_state.plat_sel.items():
+                    dados_plat = st.session_state.resultados_plat.get(key)
+                    label_pasta = dados_plat["plat"]["label"] if dados_plat else key
+                    label_pasta = re.sub(r'[\\/:*?"<>|]', "_", label_pasta)
+                    for f in files:
+                        try:
+                            zf.writestr(f"{label_pasta}/{f['name']}", baixar_arquivo(f["id"]))
+                        except Exception as e:
+                            erros_zip.append((f["name"], e))
             zip_buffer.seek(0)
 
         st.download_button(
@@ -657,18 +666,19 @@ if todos_plat:
     for nome_erro, erro in erros_zip if todos_plat else []:
         st.error(f"Erro ao baixar {nome_erro} para o .zip: {erro}")
 
-    for f in todos_plat:
-        tipo = get_tipo(f["name"])
-        label = "Economico" if tipo == "E" else "Rapido" if tipo == "R" else "Plataforma"
-        try:
-            dados = baixar_arquivo(f["id"])
-            st.download_button(
-                label=f"{label} - {f['name']}",
-                data=dados,
-                file_name=f["name"],
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key=f"dl_{f['id']}"
-            )
-        except Exception as e:
-            st.error(f"Erro ao baixar {f['name']}: {e}")
+    # Sem botões de download individuais: o navegador não permite escolher
+    # subpasta ao baixar um arquivo solto, então eles sempre cairiam
+    # misturados na pasta Downloads. Só a lista abaixo (informativa) mais o
+    # botão "Baixar todas (.zip)" acima, que já entrega tudo organizado em
+    # subpastas por plataforma.
+    for key, files in st.session_state.plat_sel.items():
+        if not files:
+            continue
+        dados_plat = st.session_state.resultados_plat.get(key)
+        label_plat = dados_plat["plat"]["label"] if dados_plat else key
+        st.markdown(f"**{label_plat}**")
+        for f in files:
+            tipo = get_tipo(f["name"])
+            label = "Economico" if tipo == "E" else "Rapido" if tipo == "R" else "Plataforma"
+            st.caption(f"{label} - {f['name']}")
     st.markdown('</div>', unsafe_allow_html=True)
