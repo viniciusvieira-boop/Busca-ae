@@ -672,5 +672,3 @@ if todos_plat:
         except Exception as e:
             st.error(f"Erro ao baixar {f['name']}: {e}")
     st.markdown('</div>', unsafe_allow_html=True)
-       
-        
