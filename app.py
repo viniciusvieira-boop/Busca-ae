@@ -24,6 +24,7 @@ st.markdown(f"""
 
 html, body, [class*="css"] {{
     font-family: 'Inter', sans-serif;
+    font-size: 16px;
 }}
 
 /* ── Header ── */
@@ -38,14 +39,14 @@ html, body, [class*="css"] {{
 }}
 .app-header-left h1 {{
     color: white;
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 700;
     margin: 0 0 2px 0;
     letter-spacing: -0.01em;
 }}
 .app-header-left p {{
     color: rgba(255,255,255,0.65);
-    font-size: 12px;
+    font-size: 13px;
     margin: 0;
 }}
 .app-header-logos {{
@@ -67,7 +68,7 @@ html, body, [class*="css"] {{
     margin-bottom: 16px;
 }}
 .card-title {{
-    font-size: 10px;
+    font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: .08em;
@@ -109,7 +110,7 @@ div[data-testid="stButton"] > button:not([kind="primary"]) {{
     border-radius: 7px !important;
     border-color: #E5E7EB !important;
     color: #374151 !important;
-    font-size: 13px !important;
+    font-size: 14px !important;
 }}
 div[data-testid="stButton"] > button:not([kind="primary"]):hover {{
     border-color: #1A2EC9 !important;
@@ -147,6 +148,7 @@ div[data-testid="stDownloadButton"]:has(button[aria-describedby*="dl_all_zip"]) 
 div[data-testid="stTextInput"] input {{
     border-radius: 7px !important;
     border-color: #E5E7EB !important;
+    font-size: 15px !important;
 }}
 div[data-testid="stTextInput"] input:focus {{
     border-color: #1A2EC9 !important;
