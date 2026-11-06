@@ -187,13 +187,16 @@ header[data-testid="stHeader"] {{background: transparent;}}
 FOLDER_COM  = "1I_G69usGZBSkJCIbJtNbYw_h10Qct703"
 FOLDER_PLAT = "1skvokx1uRKgdgiRh3qUbd8qfUiatKpFA"
 
-# Pastas auxiliares usadas no "Modo Black Friday" (clientes com prazo
-# adicional, tabelas guardadas em pastas separadas na mesma conta de
-# serviço). Troque os IDs abaixo pelos IDs reais das pastas assim que
-# tiver — pode pegar direto da URL da pasta no Google Drive
-# (drive.google.com/drive/folders/<ID_DA_PASTA>).
-FOLDER_COM_BF  = "COLOQUE_AQUI_O_ID_DA_PASTA_COMERCIAL_BLACK_FRIDAY"
-FOLDER_PLAT_BF = "COLOQUE_AQUI_O_ID_DA_PASTA_PLATAFORMA_BLACK_FRIDAY"
+# Pastas usadas na aba "Tabelas Black Friday".
+# - Comercial: as tabelas comerciais são as mesmas da aba normal (os nomes
+#   das tabelas BF de plataforma usam o mesmo cliente/tipo/número, ex:
+#   "Amazon_v2_venus_rjc_0_e_20261021.xlsx" <-> "V2_VENUS_RJC_0.xlsx").
+#   Se um dia existir uma pasta comercial exclusiva da BF, basta trocar aqui.
+# - Plataforma: pasta da BF no Drive (compartilhada com a conta de serviço).
+#   A busca é recursiva, então as subpastas "geral-...-001" até "-012"
+#   geradas pela extração dos zips são percorridas automaticamente.
+FOLDER_COM_BF  = FOLDER_COM
+FOLDER_PLAT_BF = "1UJcayhtqDNjnxVRcuMJ-xd8-CqNmxIJL"
 
 PLATAFORMAS = [
     {"key": "amazon",         "label": "Amazon",          "sub": "Marketplace"},
@@ -560,6 +563,17 @@ def render_busca(prefix, folder_com, folder_plat):
                 # garante exatidão.
                 filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, tipo_partes, numero)
 
+                # Remove duplicados por nome: na pasta da BF, a extração dos
+                # zips em partes pode gerar o mesmo arquivo em mais de uma
+                # subpasta "geral-...-00X".
+                vistos = set()
+                unicos = []
+                for f in filtrados:
+                    if f["name"] not in vistos:
+                        vistos.add(f["name"])
+                        unicos.append(f)
+                filtrados = unicos
+
                 for plat in plats_selecionadas:
                     arquivos_plat = [
                         f for f in filtrados
@@ -680,7 +694,7 @@ def render_busca(prefix, folder_com, folder_plat):
             st.download_button(
                 label="Baixar todas (.zip)",
                 data=zip_buffer,
-                file_name="tabelas_plataforma.zip",
+                file_name="tabelas_plataforma_black_friday.zip" if prefix == "bf" else "tabelas_plataforma.zip",
                 mime="application/zip",
                 use_container_width=True,
                 key=f"{prefix}_dl_all_zip"
@@ -706,6 +720,144 @@ def render_busca(prefix, folder_com, folder_plat):
         st.markdown('</div>', unsafe_allow_html=True)
 
 
+# ── Tema azul + preto da aba Black Friday ───────────────────────────────────
+#
+# Todo o CSS abaixo vale SÓ dentro do painel da aba BF: o seletor
+# `[data-baseweb="tab-panel"]:has(.bf-marker)` pega apenas o painel que
+# contém o banner da BF. A aba "Tabelas" continua com o visual de sempre.
+# (String normal, não f-string — por isso as chaves são simples.)
+
+BF_PRETO = "#0B0B0F"
+BF_AZUL = "#1A2EC9"
+
+BF_CSS = """
+<style>
+/* Rótulo da aba "Tabelas Black Friday" sempre em preto/negrito */
+div[data-testid="stTabs"] button[data-baseweb="tab"]:nth-of-type(2) p {
+    color: #0B0B0F !important;
+    font-weight: 700 !important;
+}
+div[data-testid="stTabs"] button[data-baseweb="tab"]:nth-of-type(2)[aria-selected="true"] p {
+    color: #1A2EC9 !important;
+}
+/* Barrinha da aba selecionada: preta quando a BF está ativa */
+div[data-testid="stTabs"]:has(button[data-baseweb="tab"]:nth-of-type(2)[aria-selected="true"]) div[data-baseweb="tab-highlight"] {
+    background-color: #0B0B0F !important;
+    height: 3px !important;
+}
+
+/* Banner da BF */
+.bf-banner {
+    background: linear-gradient(120deg, #0B0B0F 0%, #0B0B0F 55%, #1A2EC9 100%);
+    border-radius: 10px;
+    padding: 18px 24px;
+    margin: 4px 0 20px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+.bf-banner h2 {
+    color: #FFFFFF !important;
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    margin: 6px 0 2px 0 !important;
+    padding: 0 !important;
+}
+.bf-banner p {
+    color: rgba(255,255,255,0.7) !important;
+    font-size: 13px !important;
+    margin: 0 !important;
+}
+.bf-tag {
+    display: inline-block;
+    background: #1A2EC9;
+    color: #FFFFFF;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: .12em;
+    padding: 3px 9px;
+    border-radius: 4px;
+}
+.bf-banner-right {
+    color: #FFFFFF;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+}
+.bf-banner-right span { color: #6F7FFF; }
+
+/* Números dos passos */
+[data-baseweb="tab-panel"]:has(.bf-marker) .step-num {
+    background: #0B0B0F !important;
+}
+[data-baseweb="tab-panel"]:has(.bf-marker) .card-title {
+    color: #0B0B0F !important;
+}
+
+/* Botões primários: preto, hover azul */
+[data-baseweb="tab-panel"]:has(.bf-marker) div[data-testid="stButton"] > button[kind="primary"] {
+    background: #0B0B0F !important;
+    color: #FFFFFF !important;
+}
+[data-baseweb="tab-panel"]:has(.bf-marker) div[data-testid="stButton"] > button[kind="primary"]:hover {
+    background: #1A2EC9 !important;
+}
+[data-baseweb="tab-panel"]:has(.bf-marker) div[data-testid="stButton"] > button[kind="primary"]:disabled {
+    background: #4B4B55 !important;
+    color: rgba(255,255,255,0.6) !important;
+}
+
+/* Botões secundários: borda preta no hover */
+[data-baseweb="tab-panel"]:has(.bf-marker) div[data-testid="stButton"] > button:not([kind="primary"]):hover {
+    border-color: #0B0B0F !important;
+    color: #0B0B0F !important;
+    background: #EEF0FF !important;
+}
+
+/* Botões de download: preto, hover azul */
+[data-baseweb="tab-panel"]:has(.bf-marker) div[data-testid="stDownloadButton"] > button {
+    background: #0B0B0F !important;
+    color: #FFFFFF !important;
+    border: 1px solid #0B0B0F !important;
+}
+[data-baseweb="tab-panel"]:has(.bf-marker) div[data-testid="stDownloadButton"] > button:hover {
+    background: #1A2EC9 !important;
+    border-color: #1A2EC9 !important;
+}
+
+/* Campo de busca: foco preto */
+[data-baseweb="tab-panel"]:has(.bf-marker) div[data-testid="stTextInput"] input:focus {
+    border-color: #0B0B0F !important;
+    box-shadow: 0 0 0 2px rgba(11,11,15,0.15) !important;
+}
+
+/* Checkbox marcado: azul */
+[data-baseweb="tab-panel"]:has(.bf-marker) label[data-baseweb="checkbox"]:has(input:checked) > span:first-of-type {
+    background-color: #1A2EC9 !important;
+    border-color: #1A2EC9 !important;
+}
+/* Radio marcado: preto */
+[data-baseweb="tab-panel"]:has(.bf-marker) label[data-baseweb="radio"]:has(input:checked) > div:first-of-type {
+    background-color: #0B0B0F !important;
+    border-color: #0B0B0F !important;
+}
+</style>
+"""
+
+BF_BANNER = """
+<div class="bf-marker bf-banner">
+  <div>
+    <span class="bf-tag">BLACK FRIDAY</span>
+    <h2>Tabelas Black Friday</h2>
+    <p>Mesmo fluxo da aba Tabelas, buscando nas tabelas de plataforma da Black Friday.</p>
+  </div>
+  <div class="bf-banner-right">BLACK<span>FRIDAY</span></div>
+</div>
+"""
+
+
 # ── Navegação por abas ───────────────────────────────────────────────────────
 
 tab_normal, tab_bf = st.tabs(["Tabelas", "Tabelas Black Friday"])
@@ -714,10 +866,8 @@ with tab_normal:
     render_busca("normal", FOLDER_COM, FOLDER_PLAT)
 
 with tab_bf:
-    st.caption(
-        "Tabelas de clientes com prazo adicional, buscadas em pastas separadas "
-        "no Drive. Mesmo fluxo de busca de sempre, aplicado a essas pastas."
-    )
+    st.markdown(BF_CSS, unsafe_allow_html=True)
+    st.markdown(BF_BANNER, unsafe_allow_html=True)
 
     pastas_bf_configuradas = (
         not FOLDER_COM_BF.startswith("COLOQUE_AQUI")
