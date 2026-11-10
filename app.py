@@ -188,14 +188,18 @@ FOLDER_COM  = "1I_G69usGZBSkJCIbJtNbYw_h10Qct703"
 FOLDER_PLAT = "1skvokx1uRKgdgiRh3qUbd8qfUiatKpFA"
 
 # Pastas usadas na aba "Tabelas Black Friday".
-# - Comercial: as tabelas comerciais são as mesmas da aba normal (os nomes
-#   das tabelas BF de plataforma usam o mesmo cliente/tipo/número, ex:
-#   "Amazon_v2_venus_rjc_0_e_20261021.xlsx" <-> "V2_VENUS_RJC_0.xlsx").
-#   Se um dia existir uma pasta comercial exclusiva da BF, basta trocar aqui.
+# - Comercial: pasta própria da BF no Drive. Estrutura: pasta raiz ->
+#   "0 - Tabelas BF_2026-...-001" -> "0 - Tabelas BF_2026" -> subpastas por
+#   tipo (ex: "9 - Tabelas Oblivion SCC_V2"). Os arquivos seguem o mesmo
+#   padrão das tabelas comerciais normais (ex: "V2_JUPITER_SCC_0.xlsx").
+#   A busca é recursiva, então todas as subpastas são percorridas.
 # - Plataforma: pasta da BF no Drive (compartilhada com a conta de serviço).
 #   A busca é recursiva, então as subpastas "geral-...-001" até "-012"
 #   geradas pela extração dos zips são percorridas automaticamente.
-FOLDER_COM_BF  = FOLDER_COM
+#   Os nomes das tabelas BF de plataforma usam o mesmo cliente/tipo/número
+#   da comercial, ex: "Amazon_v2_venus_rjc_0_e_20261021.xlsx" <->
+#   "V2_VENUS_RJC_0.xlsx".
+FOLDER_COM_BF  = "1vlgEsuL0ikYDCSs97LN56lWJXzcKnxvP"
 FOLDER_PLAT_BF = "1UJcayhtqDNjnxVRcuMJ-xd8-CqNmxIJL"
 
 PLATAFORMAS = [
@@ -328,6 +332,24 @@ def buscar_recursivo(root_id, termos, max_workers=8):
                         pending.add(f_sub)
 
     return resultado
+
+def deduplicar_por_nome(arquivos, ordenar=False):
+    """
+    Remove arquivos com o mesmo nome (mantém o primeiro encontrado).
+
+    Necessário nas pastas da Black Friday: a extração de zips em partes
+    (sufixos "-001", "-002"...) pode gerar o mesmo arquivo em mais de uma
+    subpasta. Com ordenar=True, devolve a lista ordenada por nome.
+    """
+    if ordenar:
+        arquivos = sorted(arquivos, key=lambda x: x["name"].lower())
+    vistos = set()
+    unicos = []
+    for f in arquivos:
+        if f["name"] not in vistos:
+            vistos.add(f["name"])
+            unicos.append(f)
+    return unicos
 
 
 def extrair_partes_comercial(nome):
@@ -465,7 +487,10 @@ def render_busca(prefix, folder_com, folder_plat):
     if buscar_com and termo_com:
         with st.spinner(f'Buscando "{termo_com}" no Drive...'):
             try:
-                st.session_state[k_resultados_com] = buscar_recursivo(folder_com, termo_com)
+                encontrados = buscar_recursivo(folder_com, termo_com)
+                # Remove duplicados por nome (zips em partes podem repetir o
+                # mesmo arquivo em mais de uma subpasta) e ordena por nome.
+                st.session_state[k_resultados_com] = deduplicar_por_nome(encontrados, ordenar=True)
                 st.session_state[k_com_sel] = None
             except Exception as e:
                 st.error(f"Erro: {e}")
@@ -566,13 +591,7 @@ def render_busca(prefix, folder_com, folder_plat):
                 # Remove duplicados por nome: na pasta da BF, a extração dos
                 # zips em partes pode gerar o mesmo arquivo em mais de uma
                 # subpasta "geral-...-00X".
-                vistos = set()
-                unicos = []
-                for f in filtrados:
-                    if f["name"] not in vistos:
-                        vistos.add(f["name"])
-                        unicos.append(f)
-                filtrados = unicos
+                filtrados = deduplicar_por_nome(filtrados)
 
                 for plat in plats_selecionadas:
                     arquivos_plat = [
@@ -851,7 +870,7 @@ BF_BANNER = """
   <div>
     <span class="bf-tag">BLACK FRIDAY</span>
     <h2>Tabelas Black Friday</h2>
-    <p>Mesmo fluxo da aba Tabelas, buscando nas tabelas de plataforma da Black Friday.</p>
+    <p>Mesmo fluxo da aba Tabelas, buscando nas tabelas comerciais e de plataforma (com incremento de prazo) da Black Friday.</p>
   </div>
   <div class="bf-banner-right">BLACK<span>FRIDAY</span></div>
 </div>
