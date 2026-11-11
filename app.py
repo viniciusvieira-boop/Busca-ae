@@ -442,6 +442,18 @@ def get_tipo(nome):
     if re.search(r'_r_|_r\d', nome, re.IGNORECASE): return "R"
     return None
 
+def eh_tabela_plataforma(nome):
+    """
+    True para nomes no padrão das tabelas de plataforma, que sempre têm o
+    marcador E/R seguido de uma data, ex:
+      "Loja_Integrada_v2_terra_sci_1_e_20261028.xlsx"
+      "Vtex_v2_venus_spi_2_r_20261118_1.xls"
+    As tabelas comerciais (ex: "V2_TERRA_SPC_0.xlsx") não têm esse trecho.
+    Usado para impedir que tabelas de plataforma apareçam na busca comercial
+    quando a pasta comercial tiver arquivos de plataforma misturados.
+    """
+    return bool(re.search(r'_[er]_\d{6,8}', nome, re.IGNORECASE))
+
 # Cache de 10 minutos: evita baixar o mesmo arquivo mais de uma vez do Drive
 # quando ele aparece tanto no botão de download individual quanto no zip
 # consolidado (ver Card 3, abaixo).
@@ -504,9 +516,14 @@ def render_busca(prefix, folder_com, folder_plat):
                 # deduplicar=False: na busca comercial podem existir arquivos
                 # diferentes com o mesmo nome base (ex: proposta .docx e
                 # tabela .xlsx), e todos precisam aparecer na lista.
-                st.session_state[k_resultados_com] = buscar_recursivo(
+                resultados_com = buscar_recursivo(
                     folder_com, termo_com, deduplicar=False
                 )
+                # Garante que só tabelas/propostas comerciais apareçam aqui:
+                # remove arquivos no padrão de plataforma (_e_/_r_ + data).
+                st.session_state[k_resultados_com] = [
+                    f for f in resultados_com if not eh_tabela_plataforma(f["name"])
+                ]
                 st.session_state[k_com_sel] = None
             except Exception as e:
                 st.error(f"Erro: {e}")
@@ -918,5 +935,11 @@ with tab_bf:
         )
     else:
         render_busca("bf", FOLDER_COM_BF, FOLDER_PLAT_BF)
-   
-                
+           
+    
+
+         
+           
+       
+    
+    
