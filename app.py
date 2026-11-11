@@ -188,18 +188,14 @@ FOLDER_COM  = "1I_G69usGZBSkJCIbJtNbYw_h10Qct703"
 FOLDER_PLAT = "1skvokx1uRKgdgiRh3qUbd8qfUiatKpFA"
 
 # Pastas usadas na aba "Tabelas Black Friday".
-# - Comercial: pasta própria da BF no Drive. Estrutura: pasta raiz ->
-#   "0 - Tabelas BF_2026-...-001" -> "0 - Tabelas BF_2026" -> subpastas por
-#   tipo (ex: "9 - Tabelas Oblivion SCC_V2"). Os arquivos seguem o mesmo
-#   padrão das tabelas comerciais normais (ex: "V2_JUPITER_SCC_0.xlsx").
-#   A busca é recursiva, então todas as subpastas são percorridas.
+# - Comercial: as tabelas comerciais são as mesmas da aba normal (os nomes
+#   das tabelas BF de plataforma usam o mesmo cliente/tipo/número, ex:
+#   "Amazon_v2_venus_rjc_0_e_20261021.xlsx" <-> "V2_VENUS_RJC_0.xlsx").
+#   Se um dia existir uma pasta comercial exclusiva da BF, basta trocar aqui.
 # - Plataforma: pasta da BF no Drive (compartilhada com a conta de serviço).
 #   A busca é recursiva, então as subpastas "geral-...-001" até "-012"
 #   geradas pela extração dos zips são percorridas automaticamente.
-#   Os nomes das tabelas BF de plataforma usam o mesmo cliente/tipo/número
-#   da comercial, ex: "Amazon_v2_venus_rjc_0_e_20261021.xlsx" <->
-#   "V2_VENUS_RJC_0.xlsx".
-FOLDER_COM_BF  = "1vlgEsuL0ikYDCSs97LN56lWJXzcKnxvP"
+FOLDER_COM_BF  = FOLDER_COM
 FOLDER_PLAT_BF = "1UJcayhtqDNjnxVRcuMJ-xd8-CqNmxIJL"
 
 PLATAFORMAS = [
@@ -290,7 +286,36 @@ def listar_subpastas_cached(folder_id):
     ).execute()
     return result.get("files", [])
 
-def buscar_recursivo(root_id, termos, max_workers=8):
+
+# Prioridade de extensão na deduplicação (menor número = preferido).
+# Quando existem duas versões da mesma tabela com o mesmo nome base (ex: um
+# .xls solto e o mesmo .xls empacotado em .zip), fica só a de menor número.
+# O .zip só aparece quando não houver versão solta. Para preferir o .zip,
+# basta inverter os números.
+PRIORIDADE_EXT = {".xlsx": 0, ".xls": 1, ".csv": 2, ".zip": 3}
+
+def deduplicar_por_nome_base(arquivos):
+    """
+    Remove duplicados comparando o nome SEM extensão (case-insensitive).
+
+    Cobre dois casos:
+      1. Mesma tabela em formatos diferentes (.xls x .zip).
+      2. Mesmo arquivo repetido em subpastas diferentes (ex: "geral-...-001"
+         e "geral-...-002", geradas pela extração dos zips em partes).
+
+    Mantém a ordem original da lista (primeira ocorrência de cada nome base).
+    """
+    melhores = {}
+    for f in arquivos:
+        p = Path(f["name"])
+        base = p.stem.lower()
+        prio = PRIORIDADE_EXT.get(p.suffix.lower(), 9)
+        if base not in melhores or prio < melhores[base][0]:
+            melhores[base] = (prio, f)
+    return [f for _, f in melhores.values()]
+
+
+def buscar_recursivo(root_id, termos, max_workers=8, deduplicar=True):
     """
     Busca recursiva com cache por pasta (10 min).
 
@@ -307,6 +332,11 @@ def buscar_recursivo(root_id, termos, max_workers=8):
     max_workers, independente do tamanho da árvore de pastas.
 
     termos pode ser string única ou lista de termos (todos exigidos, AND).
+
+    deduplicar=True remove duplicados pelo nome base (sem extensão), ver
+    `deduplicar_por_nome_base`. Use deduplicar=False quando arquivos
+    diferentes com o mesmo nome base precisarem aparecer (ex: uma proposta
+    .docx e a tabela .xlsx na busca comercial).
     """
     resultado = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -331,25 +361,9 @@ def buscar_recursivo(root_id, termos, max_workers=8):
                         pending.add(f_arq)
                         pending.add(f_sub)
 
+    if deduplicar:
+        resultado = deduplicar_por_nome_base(resultado)
     return resultado
-
-def deduplicar_por_nome(arquivos, ordenar=False):
-    """
-    Remove arquivos com o mesmo nome (mantém o primeiro encontrado).
-
-    Necessário nas pastas da Black Friday: a extração de zips em partes
-    (sufixos "-001", "-002"...) pode gerar o mesmo arquivo em mais de uma
-    subpasta. Com ordenar=True, devolve a lista ordenada por nome.
-    """
-    if ordenar:
-        arquivos = sorted(arquivos, key=lambda x: x["name"].lower())
-    vistos = set()
-    unicos = []
-    for f in arquivos:
-        if f["name"] not in vistos:
-            vistos.add(f["name"])
-            unicos.append(f)
-    return unicos
 
 
 def extrair_partes_comercial(nome):
@@ -487,10 +501,12 @@ def render_busca(prefix, folder_com, folder_plat):
     if buscar_com and termo_com:
         with st.spinner(f'Buscando "{termo_com}" no Drive...'):
             try:
-                encontrados = buscar_recursivo(folder_com, termo_com)
-                # Remove duplicados por nome (zips em partes podem repetir o
-                # mesmo arquivo em mais de uma subpasta) e ordena por nome.
-                st.session_state[k_resultados_com] = deduplicar_por_nome(encontrados, ordenar=True)
+                # deduplicar=False: na busca comercial podem existir arquivos
+                # diferentes com o mesmo nome base (ex: proposta .docx e
+                # tabela .xlsx), e todos precisam aparecer na lista.
+                st.session_state[k_resultados_com] = buscar_recursivo(
+                    folder_com, termo_com, deduplicar=False
+                )
                 st.session_state[k_com_sel] = None
             except Exception as e:
                 st.error(f"Erro: {e}")
@@ -579,7 +595,11 @@ def render_busca(prefix, folder_com, folder_plat):
         st.session_state[k_resultados_plat] = {}
         with st.spinner("Buscando tabelas de plataforma..."):
             try:
+                # buscar_recursivo já devolve a lista sem duplicados (mesmo
+                # nome base em .xls/.zip ou repetido em subpastas
+                # "geral-...-00X"), então não precisa deduplicar de novo aqui.
                 todos_arquivos = buscar_recursivo(folder_plat, termos_busca)
+
                 # Filtro fino: exige cliente + o conjunto exato de tipo(s)
                 # (ex: "spc" ou "spc"+"mvb") + número, evitando misturar
                 # variantes diferentes do mesmo cliente (ex: SPC_0 x SCC_0 x
@@ -587,11 +607,6 @@ def render_busca(prefix, folder_com, folder_plat):
                 # substring simples e a query acima só reduz o volume, não
                 # garante exatidão.
                 filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, tipo_partes, numero)
-
-                # Remove duplicados por nome: na pasta da BF, a extração dos
-                # zips em partes pode gerar o mesmo arquivo em mais de uma
-                # subpasta "geral-...-00X".
-                filtrados = deduplicar_por_nome(filtrados)
 
                 for plat in plats_selecionadas:
                     arquivos_plat = [
@@ -870,7 +885,7 @@ BF_BANNER = """
   <div>
     <span class="bf-tag">BLACK FRIDAY</span>
     <h2>Tabelas Black Friday</h2>
-    <p>Mesmo fluxo da aba Tabelas, buscando nas tabelas comerciais e de plataforma (com incremento de prazo) da Black Friday.</p>
+    <p>Mesmo fluxo da aba Tabelas, buscando nas tabelas de plataforma da Black Friday.</p>
   </div>
   <div class="bf-banner-right">BLACK<span>FRIDAY</span></div>
 </div>
@@ -903,3 +918,5 @@ with tab_bf:
         )
     else:
         render_busca("bf", FOLDER_COM_BF, FOLDER_PLAT_BF)
+   
+                
