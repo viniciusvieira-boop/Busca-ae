@@ -315,7 +315,7 @@ def deduplicar_por_nome_base(arquivos):
     return [f for _, f in melhores.values()]
 
 
-def buscar_recursivo(root_id, termos, max_workers=8, deduplicar=True):
+def buscar_recursivo(root_id, termos, max_workers=8):
     """
     Busca recursiva com cache por pasta (10 min).
 
@@ -332,11 +332,6 @@ def buscar_recursivo(root_id, termos, max_workers=8, deduplicar=True):
     max_workers, independente do tamanho da árvore de pastas.
 
     termos pode ser string única ou lista de termos (todos exigidos, AND).
-
-    deduplicar=True remove duplicados pelo nome base (sem extensão), ver
-    `deduplicar_por_nome_base`. Use deduplicar=False quando arquivos
-    diferentes com o mesmo nome base precisarem aparecer (ex: uma proposta
-    .docx e a tabela .xlsx na busca comercial).
     """
     resultado = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -361,8 +356,6 @@ def buscar_recursivo(root_id, termos, max_workers=8, deduplicar=True):
                         pending.add(f_arq)
                         pending.add(f_sub)
 
-    if deduplicar:
-        resultado = deduplicar_por_nome_base(resultado)
     return resultado
 
 
@@ -442,18 +435,6 @@ def get_tipo(nome):
     if re.search(r'_r_|_r\d', nome, re.IGNORECASE): return "R"
     return None
 
-def eh_tabela_plataforma(nome):
-    """
-    True para nomes no padrão das tabelas de plataforma, que sempre têm o
-    marcador E/R seguido de uma data, ex:
-      "Loja_Integrada_v2_terra_sci_1_e_20261028.xlsx"
-      "Vtex_v2_venus_spi_2_r_20261118_1.xls"
-    As tabelas comerciais (ex: "V2_TERRA_SPC_0.xlsx") não têm esse trecho.
-    Usado para impedir que tabelas de plataforma apareçam na busca comercial
-    quando a pasta comercial tiver arquivos de plataforma misturados.
-    """
-    return bool(re.search(r'_[er]_\d{6,8}', nome, re.IGNORECASE))
-
 # Cache de 10 minutos: evita baixar o mesmo arquivo mais de uma vez do Drive
 # quando ele aparece tanto no botão de download individual quanto no zip
 # consolidado (ver Card 3, abaixo).
@@ -513,17 +494,7 @@ def render_busca(prefix, folder_com, folder_plat):
     if buscar_com and termo_com:
         with st.spinner(f'Buscando "{termo_com}" no Drive...'):
             try:
-                # deduplicar=False: na busca comercial podem existir arquivos
-                # diferentes com o mesmo nome base (ex: proposta .docx e
-                # tabela .xlsx), e todos precisam aparecer na lista.
-                resultados_com = buscar_recursivo(
-                    folder_com, termo_com, deduplicar=False
-                )
-                # Garante que só tabelas/propostas comerciais apareçam aqui:
-                # remove arquivos no padrão de plataforma (_e_/_r_ + data).
-                st.session_state[k_resultados_com] = [
-                    f for f in resultados_com if not eh_tabela_plataforma(f["name"])
-                ]
+                st.session_state[k_resultados_com] = buscar_recursivo(folder_com, termo_com)
                 st.session_state[k_com_sel] = None
             except Exception as e:
                 st.error(f"Erro: {e}")
@@ -612,9 +583,6 @@ def render_busca(prefix, folder_com, folder_plat):
         st.session_state[k_resultados_plat] = {}
         with st.spinner("Buscando tabelas de plataforma..."):
             try:
-                # buscar_recursivo já devolve a lista sem duplicados (mesmo
-                # nome base em .xls/.zip ou repetido em subpastas
-                # "geral-...-00X"), então não precisa deduplicar de novo aqui.
                 todos_arquivos = buscar_recursivo(folder_plat, termos_busca)
 
                 # Filtro fino: exige cliente + o conjunto exato de tipo(s)
@@ -624,6 +592,11 @@ def render_busca(prefix, folder_com, folder_plat):
                 # substring simples e a query acima só reduz o volume, não
                 # garante exatidão.
                 filtrados = filtrar_por_tabela_comercial(todos_arquivos, cliente, tipo_partes, numero)
+
+                # Remove duplicados: mesmo nome base (sem extensão) em formatos
+                # diferentes (.xls x .zip) ou repetido em subpastas "geral-...-00X".
+                # Fica um só, preferindo .xls.
+                filtrados = deduplicar_por_nome_base(filtrados)
 
                 for plat in plats_selecionadas:
                     arquivos_plat = [
@@ -935,7 +908,8 @@ with tab_bf:
         )
     else:
         render_busca("bf", FOLDER_COM_BF, FOLDER_PLAT_BF)
-           
+
+    
     
 
          
