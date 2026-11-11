@@ -352,6 +352,28 @@ def deduplicar_por_nome(arquivos, ordenar=False):
     return unicos
 
 
+def deduplicar_por_base(arquivos):
+    """
+    Remove duplicados que diferem só pela extensão (ex: o mesmo arquivo como
+    ".zip" e ".xls"/".xlsx"). Agrupa pelo nome sem extensão e mantém uma
+    versão por grupo, com prioridade: .xlsx > .xls > demais (ex: .zip).
+    Se só existir o .zip, ele é mantido.
+    """
+    prioridade = {".xlsx": 0, ".xls": 1}
+    melhores = {}
+    ordem = []
+    for f in arquivos:
+        p = Path(f["name"])
+        base = p.stem.lower()
+        prio = prioridade.get(p.suffix.lower(), 2)
+        if base not in melhores:
+            melhores[base] = (prio, f)
+            ordem.append(base)
+        elif prio < melhores[base][0]:
+            melhores[base] = (prio, f)
+    return [melhores[b][1] for b in ordem]
+
+
 def extrair_partes_comercial(nome):
     """
     Extrai as partes que identificam a tabela comercial a partir do nome do
@@ -592,6 +614,10 @@ def render_busca(prefix, folder_com, folder_plat):
                 # zips em partes pode gerar o mesmo arquivo em mais de uma
                 # subpasta "geral-...-00X".
                 filtrados = deduplicar_por_nome(filtrados)
+
+                # Remove também o mesmo arquivo em formatos diferentes
+                # (.zip + .xls/.xlsx), mantendo a planilha.
+                filtrados = deduplicar_por_base(filtrados)
 
                 for plat in plats_selecionadas:
                     arquivos_plat = [
@@ -903,7 +929,5 @@ with tab_bf:
         )
     else:
         render_busca("bf", FOLDER_COM_BF, FOLDER_PLAT_BF)
-    
-       
     
     
