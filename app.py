@@ -221,6 +221,12 @@ PLATAFORMAS = [
     {"key": "intelipost",     "label": "Intelipost",      "sub": "Logistica"},
 ]
 
+# Plataformas exibidas só na aba Black Friday: as da lista acima + Yampi
+# (a Yampi só tem tabelas na pasta de plataforma da BF).
+PLATAFORMAS_BF = PLATAFORMAS + [
+    {"key": "yampi",          "label": "Yampi",           "sub": "Plataforma"},
+]
+
 _thread_local = threading.local()
 
 def get_drive_service():
@@ -468,7 +474,7 @@ def baixar_arquivo(file_id):
 # ── Configuração e funções compartilhadas pelas abas ────────────────────────
 
 
-def render_busca(prefix, folder_com, folder_plat):
+def render_busca(prefix, folder_com, folder_plat, plataformas=None):
     """
     Renderiza o fluxo completo (Card 1: comercial, Card 2: plataformas,
     Card 3: downloads) para um par de pastas do Drive.
@@ -549,7 +555,7 @@ def render_busca(prefix, folder_com, folder_plat):
 
     cols = st.columns(4)
     plats_selecionadas = []
-    for i, plat in enumerate(PLATAFORMAS):
+    for i, plat in enumerate(plataformas or PLATAFORMAS):
         with cols[i % 4]:
             checked = st.checkbox(f"{plat['label']} {plat['sub']}", key=f"{prefix}_chip_{plat['key']}")
             if checked:
@@ -928,6 +934,6 @@ with tab_bf:
             "drive.google.com/drive/folders/**<ID>**)."
         )
     else:
-        render_busca("bf", FOLDER_COM_BF, FOLDER_PLAT_BF)
+        render_busca("bf", FOLDER_COM_BF, FOLDER_PLAT_BF, PLATAFORMAS_BF)
     
     
